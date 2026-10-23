@@ -4,7 +4,6 @@ import { initializeApp } from 'firebase/app';
 import {
   getAuth,
   signInAnonymously,
-  signInWithCustomToken,
   onAuthStateChanged,
   type User
 } from 'firebase/auth';
@@ -13,7 +12,6 @@ import {
   collection,
   doc,
   setDoc,
-  getDoc,
   onSnapshot
 } from 'firebase/firestore';
 import {
@@ -33,7 +31,6 @@ import {
   UserPlus,
   Edit3,
   BarChart3,
-  HelpCircle,
   Lock,
   RefreshCw,
   ArrowRight,
@@ -567,14 +564,10 @@ export default function App() {
   // ==========================================
   // 1) Firebase Authentication 初期化 (RULE 3 準拠)
   // ==========================================
-  useEffect(() => {
+useEffect(() => {
     const initAuth = async () => {
       try {
-        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-          await signInWithCustomToken(auth, __initial_auth_token);
-        } else {
-          await signInAnonymously(auth);
-        }
+        await signInAnonymously(auth);
       } catch (err) {
         console.error('Auth initialization error:', err);
         setErrorMessage('認証の初期化に失敗しました。通信環境を確認して再読み込みしてください。');
