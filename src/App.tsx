@@ -11,6 +11,7 @@ import {
   collection,
   doc,
   setDoc,
+  deleteDoc,
   onSnapshot
 } from 'firebase/firestore';
 import {
@@ -96,6 +97,7 @@ export interface ScheduleEvent {
   eventId: string;
   title: string;
   organizerName: string;
+  organizerUid?: string; // 作成者の匿名Auth UID（削除・編集権限判定用）
   expectedCount: number;
   candidateDates: string[]; // ["YYYY-MM-DD", ...]
   dayStartTime: string;  // 例: "09:00"
@@ -129,7 +131,7 @@ interface RankedCandidate {
 }
 
 // ==========================================
-// 3. ユーティリティ関数（時刻・日付・バリデーション・区間結合）
+// 3. ユーティリティ関数（時刻・日付・区間結合・区間削除）
 // ==========================================
 
 const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
@@ -210,7 +212,6 @@ const mergeTimeRanges = (ranges: TimeRange[]): { merged: TimeRange[]; didMerge: 
       const currStart = timeToMinutes(current.start);
       const currEnd = timeToMinutes(current.end);
 
-      // 重複または隣接している場合は結合
       if (currStart <= lastEnd) {
         didMerge = true;
         if (currEnd > lastEnd) {
@@ -223,6 +224,42 @@ const mergeTimeRanges = (ranges: TimeRange[]): { merged: TimeRange[]; didMerge: 
   }
 
   return { merged: result, didMerge };
+};
+
+/** 既存の空き時間帯リストから、指定した範囲 [remStartMins, remEndMins] をくり抜いて削除する */
+const subtractTimeRanges = (ranges: TimeRange[], remStartMins: number, remEndMins: number): TimeRange[] => {
+  const result: TimeRange[] = [];
+
+  for (const r of ranges) {
+    const rStart = timeToMinutes(r.start);
+    const rEnd = timeToMinutes(r.end);
+
+    // 重なりがない場合はそのまま残す
+    if (remEndMins <= rStart || remStartMins >= rEnd) {
+      result.push(r);
+      continue;
+    }
+
+    // 前半部分が残る場合
+    if (rStart < remStartMins) {
+      result.push({
+        id: `rng-${Date.now()}-${Math.random().toString(36).substring(2, 6)}-a`,
+        start: minutesToTime(rStart),
+        end: minutesToTime(remStartMins)
+      });
+    }
+
+    // 後半部分が残る場合
+    if (rEnd > remEndMins) {
+      result.push({
+        id: `rng-${Date.now()}-${Math.random().toString(36).substring(2, 6)}-b`,
+        start: minutesToTime(remEndMins),
+        end: minutesToTime(rEnd)
+      });
+    }
+  }
+
+  return result;
 };
 
 /** 明日からの候補日リストを生成 */
@@ -415,6 +452,11 @@ export default function App() {
     return d;
   });
 
+  // --- Event Edit & Delete Modal State ---
+  const [isEditingEventTitle, setIsEditingEventTitle] = useState(false);
+  const [editEventTitleInput, setEditEventTitleInput] = useState('');
+  const [showDeleteEventModal, setShowDeleteEventModal] = useState(false);
+
   // --- Availability Input State ---
   const [editingParticipantId, setEditingParticipantId] = useState<string | null>(null);
   const [inputNickname, setInputNickname] = useState('');
@@ -429,11 +471,12 @@ export default function App() {
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
-  // --- Drag Selection State (ドラッグで空き時間を追加) ---
+  // --- Drag Selection State (PC専用: 追加モード / 削除モード自動判定) ---
   const [dragState, setDragState] = useState<{
     date: string;
     startMins: number;
     currentMins: number;
+    mode: 'add' | 'remove';
   } | null>(null);
 
   // --- PIN Verification Modal for other devices ---
@@ -542,6 +585,13 @@ export default function App() {
     return eventsMap[currentEventId] || null;
   }, [currentEventId, eventsMap]);
 
+  // 現在のユーザーがイベント作成者かどうか判定（過去作成されたorganizerUid未設定のイベントも削除可能に対応）
+  const isEventCreator = useMemo(() => {
+    if (!currentEvent || !user) return false;
+    if (!currentEvent.organizerUid) return true;
+    return currentEvent.organizerUid === user.uid;
+  }, [currentEvent, user]);
+
   useEffect(() => {
     if (currentEvent && currentEvent.candidateDates.length > 0) {
       if (!selectedTimelineDate || !currentEvent.candidateDates.includes(selectedTimelineDate)) {
@@ -556,7 +606,7 @@ export default function App() {
   }, [currentEvent, minDurationFilter]);
 
   // ==========================================
-  // 3) アクション関数（イベント作成・下書き保存・回答送信）
+  // 3) アクション関数（イベント作成・名前変更・削除・下書き保存・回答送信）
   // ==========================================
 
   /** 新規予定調整イベントを作成 */
@@ -588,6 +638,7 @@ export default function App() {
         eventId,
         title: trimmedTitle,
         organizerName: trimmedOrg,
+        organizerUid: user.uid,
         expectedCount: Math.max(2, Math.min(50, newExpectedCount)),
         candidateDates: sortedDates,
         dayStartTime: newDayStart,
@@ -606,6 +657,62 @@ export default function App() {
     } catch (err) {
       console.error('Create event error:', err);
       setErrorMessage('予定調整の作成に失敗しました。もう一度お試しください。');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  /** イベント名（タイトル）の変更を保存 */
+  const handleUpdateEventTitle = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user || !currentEvent) return;
+    const trimmed = editEventTitleInput.trim();
+    if (!trimmed) {
+      setErrorMessage('イベント名を入力してください。');
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      const eventRef = doc(db, 'artifacts', appId, 'public', 'data', 'schedule_events', currentEvent.eventId);
+      await setDoc(eventRef, {
+        ...currentEvent,
+        title: trimmed,
+        updatedAt: Date.now()
+      });
+      setIsEditingEventTitle(false);
+      showToast('イベント名を変更しました！');
+    } catch (err) {
+      console.error('Update event title error:', err);
+      setErrorMessage('イベント名の変更に失敗しました。');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  /** イベント（予定調整自体）の削除 */
+  const handleDeleteCurrentEvent = async () => {
+    if (!user || !currentEvent) return;
+    setIsSaving(true);
+    setErrorMessage(null);
+    try {
+      const eventRef = doc(db, 'artifacts', appId, 'public', 'data', 'schedule_events', currentEvent.eventId);
+      await deleteDoc(eventRef);
+      setShowDeleteEventModal(false);
+      setCurrentEventId(null);
+      setActiveScreen('top');
+      // URLの ?event=... パラメータをクリア
+      try {
+        const url = new URL(window.location.href);
+        url.searchParams.delete('event');
+        window.history.replaceState({}, '', url.toString());
+      } catch {
+        // ignore
+      }
+      showToast('予定調整を削除しました');
+    } catch (err) {
+      console.error('Delete event error:', err);
+      setErrorMessage('予定調整の削除に失敗しました。');
     } finally {
       setIsSaving(false);
     }
@@ -705,7 +812,7 @@ export default function App() {
   };
 
   // ==========================================
-  // 4) 空き時間レンジ操作（追加・ドラッグ・プリセット・終日・削除・コピー）
+  // 4) 空き時間レンジ操作（追加・ドラッグ追加/削除・プリセット・終日・削除・コピー）
   // ==========================================
   const currentEditingDate = currentEvent ? currentEvent.candidateDates[selectedDateIndex] : '';
   const currentDayData: DayAvailability = currentEditingDate && availabilityDraft[currentEditingDate]
@@ -759,31 +866,56 @@ export default function App() {
     }
   };
 
+  /** 任意の日付から指定した時間範囲 [remStartMins, remEndMins] をドラッグで削除する */
+  const handleSubtractTimeRangeForDate = (targetDate: string, remStartMins: number, remEndMins: number) => {
+    if (!targetDate) return;
+    const targetDayData = availabilityDraft[targetDate];
+    if (!targetDayData || targetDayData.status !== 'available') return;
+
+    const remainingRanges = subtractTimeRanges(targetDayData.ranges, remStartMins, remEndMins);
+    const nextAvail: Record<string, DayAvailability> = {
+      ...availabilityDraft,
+      [targetDate]: {
+        date: targetDate,
+        status: remainingRanges.length > 0 ? 'available' : 'unanswered',
+        ranges: remainingRanges
+      }
+    };
+
+    setAvailabilityDraft(nextAvail);
+    saveDraftToCloud(nextAvail);
+    showToast(
+      `${formatJapaneseDate(targetDate).short} の ${minutesToTime(remStartMins)}〜${minutesToTime(remEndMins)} を消去しました`
+    );
+  };
+
   /** 現在選択中の日付に時間帯を追加 */
   const handleAddTimeRange = (startStr: string, endStr: string) => {
     handleAddTimeRangeForDate(currentEditingDate, startStr, endStr);
   };
 
-  /** ドラッグ操作の完了処理（マウスを離した時に空き時間を追加） */
+  /** PC用ドラッグ操作の完了処理（マウスを離した時に追加または削除を実行） */
   useEffect(() => {
     if (!dragState) return;
 
     const handleGlobalMouseUp = () => {
       const minSlot = Math.min(dragState.startMins, dragState.currentMins);
       const maxSlot = Math.max(dragState.startMins, dragState.currentMins) + 30;
-      const startStr = minutesToTime(minSlot);
-      const endStr = minutesToTime(maxSlot);
       const targetDate = dragState.date;
+      const mode = dragState.mode;
 
       setDragState(null);
-      handleAddTimeRangeForDate(targetDate, startStr, endStr);
+
+      if (mode === 'remove') {
+        handleSubtractTimeRangeForDate(targetDate, minSlot, maxSlot);
+      } else {
+        handleAddTimeRangeForDate(targetDate, minutesToTime(minSlot), minutesToTime(maxSlot));
+      }
     };
 
     window.addEventListener('mouseup', handleGlobalMouseUp);
-    window.addEventListener('touchend', handleGlobalMouseUp);
     return () => {
       window.removeEventListener('mouseup', handleGlobalMouseUp);
-      window.removeEventListener('touchend', handleGlobalMouseUp);
     };
   });
 
@@ -1040,7 +1172,7 @@ export default function App() {
     return generateTimeOptions(currentEvent.dayStartTime, currentEvent.dayEndTime);
   }, [currentEvent]);
 
-  // ドラッググリッド用の30分刻みスロット配列（開始時刻分）
+  // PCドラッググリッド用の30分刻みスロット配列（開始時刻分）
   const gridTimeSlots = useMemo(() => {
     if (!currentEvent) return [];
     const startM = timeToMinutes(currentEvent.dayStartTime);
@@ -1079,7 +1211,7 @@ export default function App() {
               <div className="flex items-center gap-1.5">
                 <span className="font-extrabold text-lg tracking-tight text-slate-900">アキミッケ</span>
                 <span className="text-[10px] font-bold bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full">
-                  時間帯・ドラッグ入力対応
+                  かんたん時間帯調整
                 </span>
               </div>
               <p className="text-[11px] text-slate-500 leading-none">30分ごとの○×不要！みんなの空き時間調整</p>
@@ -1178,7 +1310,7 @@ export default function App() {
                   30分ごとの○×ポチポチは<br />もう終わり！
                 </h1>
                 <p className="text-emerald-50 text-sm sm:text-base leading-relaxed mb-6">
-                  「13:00〜18:00」のように時間帯をまとめて選ぶか、カレンダーをドラッグしてなぞるだけ。みんなが集まれるベストな日時を自動で見つけます。
+                  「13:00〜18:00」のように空いている時間帯をまとめて選ぶだけ。PCならカレンダーのドラッグ追加・消去にも対応し、みんなが集まれるベストな日時を自動で見つけます。
                 </p>
 
                 <button
@@ -1214,8 +1346,8 @@ export default function App() {
                       2
                     </span>
                     <div>
-                      <p className="font-bold text-sm text-slate-900">ドラッグやボタンで空き時間を登録</p>
-                      <p className="text-xs text-slate-600 mt-1">カレンダーをなぞるか、「13:00〜18:00」などのボタンでサクッと入力！</p>
+                      <p className="font-bold text-sm text-slate-900">空き時間をまとめて登録</p>
+                      <p className="text-xs text-slate-600 mt-1">スマホはボタン＆時刻選択、PCはドラッグでもサクッと入力！</p>
                     </div>
                   </div>
                   <div className="flex sm:flex-col items-start gap-3 bg-slate-50 p-4 rounded-2xl">
@@ -1510,13 +1642,70 @@ export default function App() {
             <div className="lg:col-span-7 space-y-4">
               <div className="bg-white rounded-3xl p-5 sm:p-6 border border-slate-200 shadow-sm space-y-4">
                 <div>
-                  <span className="inline-flex items-center gap-1 text-xs font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full mb-1.5">
-                    <Users className="w-3.5 h-3.5" />
-                    幹事: {currentEvent.organizerName} ・ 予定人数 {currentEvent.expectedCount}人
-                  </span>
-                  <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900 leading-snug">
-                    {currentEvent.title}
-                  </h1>
+                  <div className="flex items-center justify-between gap-2 mb-1.5">
+                    <span className="inline-flex items-center gap-1 text-xs font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full">
+                      <Users className="w-3.5 h-3.5" />
+                      幹事: {currentEvent.organizerName} ・ 予定人数 {currentEvent.expectedCount}人
+                    </span>
+
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditEventTitleInput(currentEvent.title);
+                          setIsEditingEventTitle(true);
+                        }}
+                        className="inline-flex items-center gap-1 text-xs font-bold text-slate-600 hover:text-emerald-700 bg-slate-100 hover:bg-emerald-50 px-2.5 py-1.5 rounded-xl transition"
+                      >
+                        <Edit3 className="w-3.5 h-3.5" />
+                        <span>イベント名変更</span>
+                      </button>
+
+                      {isEventCreator && (
+                        <button
+                          type="button"
+                          onClick={() => setShowDeleteEventModal(true)}
+                          className="inline-flex items-center gap-1 text-xs font-bold text-rose-600 hover:bg-rose-100 bg-rose-50 px-2.5 py-1.5 rounded-xl transition"
+                          title="この予定調整を削除"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          <span>削除</span>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* イベント名表示 or インライン編集フォーム */}
+                  {isEditingEventTitle ? (
+                    <form onSubmit={handleUpdateEventTitle} className="mt-2 flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={editEventTitleInput}
+                        onChange={e => setEditEventTitleInput(e.target.value)}
+                        placeholder="イベント名を入力"
+                        autoFocus
+                        className="flex-1 px-3.5 py-2 rounded-xl border-2 border-emerald-500 font-extrabold text-base text-slate-900 outline-none"
+                      />
+                      <button
+                        type="submit"
+                        disabled={isSaving}
+                        className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shrink-0"
+                      >
+                        保存
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setIsEditingEventTitle(false)}
+                        className="px-3 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold text-xs shrink-0"
+                      >
+                        キャンセル
+                      </button>
+                    </form>
+                  ) : (
+                    <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900 leading-snug">
+                      {currentEvent.title}
+                    </h1>
+                  )}
                 </div>
 
                 {/* 回答状況プログレス */}
@@ -1712,7 +1901,7 @@ export default function App() {
         )}
 
         {/* ====================================================
-            画面4: 空き時間入力画面（従来の時間帯入力 ＋ カレンダードラッグ入力）
+            画面4: 空き時間入力画面（スマホはボタン＆時刻入力、PCはドラッグ追加/消去グリッドも併設）
         ==================================================== */}
         {activeScreen === 'input' && currentEvent && (
           <div className="space-y-5">
@@ -1765,9 +1954,9 @@ export default function App() {
               </div>
             </div>
 
-            {/* PCでは左右2カラム（左：日別のボタン＆プルダウン入力、右：複数日ドラッグカレンダー） */}
+            {/* スマホは1カラム（ドラッグ画面なし）、PC(lg以上)は左右2カラム（右側にドラッグ追加＆消去カレンダーを表示） */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
-              {/* 左カラム（既存のボタン・プリセット・プルダウン入力一式を完全維持） */}
+              {/* 左カラム（スマホでは全幅）: 日別のボタン・プリセット・プルダウン入力 */}
               <div className="lg:col-span-6 space-y-4">
                 {/* 日付選択ボタン */}
                 <div className="bg-white rounded-3xl p-4 sm:p-5 border border-slate-200 shadow-sm space-y-3">
@@ -2021,7 +2210,7 @@ export default function App() {
                             まだこの日の空き時間が登録されていません
                           </p>
                           <p className="text-[11px] text-amber-700 mt-0.5">
-                            上のボタン・プルダウン、またはカレンダーのドラッグから追加してください
+                            上のボタン・時刻指定から空き時間を追加してください
                           </p>
                         </div>
                       )}
@@ -2126,16 +2315,16 @@ export default function App() {
                 )}
               </div>
 
-              {/* 右カラム: ドラッグで空いている時間を追加できるカレンダーグリッド */}
-              <div className="lg:col-span-6 bg-white rounded-3xl p-4 sm:p-5 border border-slate-200 shadow-sm space-y-3">
+              {/* 右カラム（PC画面専用: スマホでは非表示 `hidden lg:block`）: ドラッグで追加＆消去できるカレンダーグリッド */}
+              <div className="hidden lg:block lg:col-span-6 bg-white rounded-3xl p-5 border border-slate-200 shadow-sm space-y-3">
                 <div className="flex items-center justify-between flex-wrap gap-2">
                   <div>
-                    <h3 className="font-extrabold text-sm sm:text-base text-slate-900 flex items-center gap-1.5">
+                    <h3 className="font-extrabold text-base text-slate-900 flex items-center gap-1.5">
                       <Calendar className="w-4 h-4 text-emerald-600" />
-                      <span>ドラッグで空き時間を追加・一覧確認</span>
+                      <span>マウスドラッグで空き時間を追加・消去（PC用）</span>
                     </h3>
                     <p className="text-xs text-slate-500 mt-0.5">
-                      空いている時間帯を縦にドラッグ（なぞる）すると、既存の入力を消さずにそのまま追加・結合できます。
+                      空欄をドラッグすると<span className="text-emerald-700 font-bold">「追加」</span>、緑の登録済み部分をドラッグすると<span className="text-rose-600 font-bold">「消去」</span>できます。
                     </p>
                   </div>
                 </div>
@@ -2233,27 +2422,31 @@ export default function App() {
                                     setDragState({
                                       date: d,
                                       startMins: slotMins,
-                                      currentMins: slotMins
+                                      currentMins: slotMins,
+                                      mode: matchingRange ? 'remove' : 'add'
                                     });
                                   }}
                                   onMouseEnter={() => {
-                                    if (dragState) {
+                                    if (dragState && dragState.date === d) {
                                       setDragState(prev => (prev ? { ...prev, currentMins: slotMins } : null));
                                     }
                                   }}
                                   className={`h-7 border-r border-slate-100 last:border-r-0 relative cursor-pointer transition-colors ${
                                     isDraggingThisCell
-                                      ? 'bg-emerald-400/80'
+                                      ? dragState.mode === 'remove'
+                                        ? 'bg-rose-400/85'
+                                        : 'bg-emerald-400/80'
                                       : matchingRange
-                                      ? 'bg-emerald-500/90 hover:bg-emerald-600'
+                                      ? 'bg-emerald-500/90 hover:bg-rose-500/80'
                                       : dayAvail?.status === 'unavailable'
                                       ? 'bg-slate-200/60'
                                       : isHourMark
                                       ? 'bg-white hover:bg-emerald-50'
                                       : 'bg-slate-50/40 hover:bg-emerald-50'
                                   }`}
+                                  title={matchingRange ? 'ドラッグまたはクリックで消去' : 'ドラッグで空き時間を追加'}
                                 >
-                                  {isRangeStart && matchingRange && (
+                                  {isRangeStart && matchingRange && !isDraggingThisCell && (
                                     <div className="px-1.5 py-0.5 flex items-center justify-between text-[10px] font-mono font-bold text-white leading-none">
                                       <span className="truncate">
                                         {matchingRange.start}〜{matchingRange.end}
@@ -2908,6 +3101,41 @@ export default function App() {
                 className="w-1/2 py-3 rounded-xl font-extrabold text-xs bg-emerald-600 text-white"
               >
                 編集画面へ進む
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ====================================================
+          モーダル4: イベント（予定調整自体）の削除確認モーダル
+      ==================================================== */}
+      {showDeleteEventModal && currentEvent && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-sm rounded-3xl p-5 space-y-4 shadow-2xl">
+            <div className="flex items-center gap-2 text-rose-600 font-extrabold text-base">
+              <Trash2 className="w-5 h-5" />
+              <span>予定調整の削除</span>
+            </div>
+            <p className="text-xs text-slate-600 leading-relaxed">
+              「<strong>{currentEvent.title}</strong>」を削除してもよろしいですか？<br />
+              登録されたメンバーの回答データもすべて削除されます。
+            </p>
+            <div className="flex gap-2.5 pt-1">
+              <button
+                type="button"
+                onClick={() => setShowDeleteEventModal(false)}
+                className="w-1/2 py-3 rounded-xl font-bold text-xs bg-slate-100 text-slate-700 hover:bg-slate-200"
+              >
+                キャンセル
+              </button>
+              <button
+                type="button"
+                disabled={isSaving}
+                onClick={handleDeleteCurrentEvent}
+                className="w-1/2 py-3 rounded-xl font-extrabold text-xs bg-rose-600 hover:bg-rose-700 text-white shadow-sm"
+              >
+                {isSaving ? '削除中...' : '削除する'}
               </button>
             </div>
           </div>
