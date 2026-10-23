@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { initializeApp } from 'firebase/app';
-// 修正後
 import {
   getAuth,
   signInAnonymously,
@@ -40,7 +39,6 @@ import {
   XCircle,
   Info,
   ShieldCheck,
-  FileCode,
   Send
 } from 'lucide-react';
 
@@ -61,7 +59,7 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
-const appId = 'akimikke-schedule-app'; // ← ★ここを追加してください
+const appId = 'akimikke-schedule-app';
 
 // ==========================================
 // 2. 型定義 (データ構造)
@@ -98,7 +96,7 @@ export interface ScheduleEvent {
   eventId: string;
   title: string;
   organizerName: string;
-  expectedCount: number; // デフォルト6人
+  expectedCount: number;
   candidateDates: string[]; // ["YYYY-MM-DD", ...]
   dayStartTime: string;  // 例: "09:00"
   dayEndTime: string;    // 例: "23:00"
@@ -241,107 +239,7 @@ const getUpcomingDates = (daysCount: number, offsetDays = 1): string[] => {
 };
 
 // ==========================================
-// 4. サンプルデータ生成（大学生6人グループのリアルな予定）
-// ==========================================
-const createSampleUniversityEvent = (currentUid: string): ScheduleEvent => {
-  const dates = getUpcomingDates(5, 2); // 2日後から5日間
-  const d0 = dates[0];
-  const d1 = dates[1];
-  const d2 = dates[2];
-  const d3 = dates[3];
-  const d4 = dates[4];
-
-  const now = Date.now();
-
-  const participants: Participant[] = [
-    {
-      participantId: 'p-101',
-      nickname: 'たくみ（幹事）',
-      ownerUid: currentUid,
-      pinCode: '1234',
-      updatedAt: now - 1000 * 60 * 45,
-      availability: {
-        [d0]: { date: d0, status: 'available', ranges: [{ id: 'r1', start: '13:00', end: '18:00' }, { id: 'r2', start: '21:00', end: '23:00' }] },
-        [d1]: { date: d1, status: 'available', ranges: [{ id: 'r3', start: '18:00', end: '22:00' }] },
-        [d2]: { date: d2, status: 'available', ranges: [{ id: 'r4', start: '09:00', end: '23:00' }] },
-        [d3]: { date: d3, status: 'unavailable', ranges: [] },
-        [d4]: { date: d4, status: 'available', ranges: [{ id: 'r5', start: '17:00', end: '23:00' }] },
-      }
-    },
-    {
-      participantId: 'p-102',
-      nickname: 'はるか',
-      ownerUid: 'sample-user-2',
-      pinCode: '0000',
-      updatedAt: now - 1000 * 60 * 35,
-      availability: {
-        [d0]: { date: d0, status: 'available', ranges: [{ id: 'r6', start: '14:00', end: '18:00' }] },
-        [d1]: { date: d1, status: 'available', ranges: [{ id: 'r7', start: '18:00', end: '23:00' }] },
-        [d2]: { date: d2, status: 'available', ranges: [{ id: 'r8', start: '13:00', end: '21:00' }] },
-        [d3]: { date: d3, status: 'available', ranges: [{ id: 'r9', start: '19:00', end: '23:00' }] },
-        [d4]: { date: d4, status: 'available', ranges: [{ id: 'r10', start: '18:00', end: '22:00' }] },
-      }
-    },
-    {
-      participantId: 'p-103',
-      nickname: 'けんた',
-      ownerUid: 'sample-user-3',
-      pinCode: '0000',
-      updatedAt: now - 1000 * 60 * 28,
-      availability: {
-        [d0]: { date: d0, status: 'unavailable', ranges: [] },
-        [d1]: { date: d1, status: 'available', ranges: [{ id: 'r11', start: '17:30', end: '21:30' }] },
-        [d2]: { date: d2, status: 'available', ranges: [{ id: 'r12', start: '18:00', end: '23:00' }] },
-        [d3]: { date: d3, status: 'available', ranges: [{ id: 'r13', start: '13:00', end: '17:00' }] },
-        [d4]: { date: d4, status: 'available', ranges: [{ id: 'r14', start: '18:00', end: '23:00' }] },
-      }
-    },
-    {
-      participantId: 'p-104',
-      nickname: 'みさき',
-      ownerUid: 'sample-user-4',
-      pinCode: '0000',
-      updatedAt: now - 1000 * 60 * 18,
-      availability: {
-        [d0]: { date: d0, status: 'available', ranges: [{ id: 'r15', start: '13:00', end: '19:00' }] },
-        [d1]: { date: d1, status: 'available', ranges: [{ id: 'r16', start: '18:30', end: '22:00' }] },
-        [d2]: { date: d2, status: 'available', ranges: [{ id: 'r17', start: '18:00', end: '21:00' }] },
-        [d3]: { date: d3, status: 'unavailable', ranges: [] },
-        [d4]: { date: d4, status: 'available', ranges: [{ id: 'r18', start: '17:30', end: '22:30' }] },
-      }
-    },
-    {
-      participantId: 'p-105',
-      nickname: 'りょう',
-      ownerUid: 'sample-user-5',
-      pinCode: '0000',
-      updatedAt: now - 1000 * 60 * 9,
-      availability: {
-        [d0]: { date: d0, status: 'available', ranges: [{ id: 'r19', start: '15:00', end: '18:00' }] },
-        [d1]: { date: d1, status: 'available', ranges: [{ id: 'r20', start: '18:00', end: '21:00' }] },
-        [d2]: { date: d2, status: 'available', ranges: [{ id: 'r21', start: '17:00', end: '22:00' }] },
-        [d3]: { date: d3, status: 'available', ranges: [{ id: 'r22', start: '18:00', end: '23:00' }] },
-        [d4]: { date: d4, status: 'available', ranges: [{ id: 'r23', start: '18:00', end: '21:30' }] },
-      }
-    }
-  ];
-
-  return {
-    eventId: 'sample-zemi-party-6',
-    title: 'ゼミ6人で打ち上げ＆ご飯会🍕',
-    organizerName: 'たくみ（幹事）',
-    expectedCount: 6,
-    candidateDates: dates,
-    dayStartTime: '09:00',
-    dayEndTime: '23:00',
-    createdAt: now - 1000 * 60 * 60,
-    updatedAt: now - 1000 * 60 * 9,
-    participants
-  };
-};
-
-// ==========================================
-// 5. 集計アルゴリズム（30分単位スライス＆極大連続区間抽出）
+// 4. 集計アルゴリズム（30分単位スライス＆極大連続区間抽出）
 // ==========================================
 const calculateAggregatedResults = (
   event: ScheduleEvent,
@@ -375,7 +273,6 @@ const calculateAggregatedResults = (
         } else if (dayData.status === 'unavailable') {
           unavailable.push(p);
         } else {
-          // 1つでも区間が [slotStart, slotEnd] を包含していれば参加可能
           const isFree = dayData.ranges.some(r => {
             const rStart = timeToMinutes(r.start);
             const rEnd = timeToMinutes(r.end);
@@ -400,13 +297,10 @@ const calculateAggregatedResults = (
 
     dailyTimeline[date] = slots;
 
-    // 同じ日の連続する時間帯で、参加可能メンバー構成が極大となる連続区間を抽出する
-    // 同じ日時が重複してランキングに出ないよう、各人数レベル・メンバー組み合わせごとの極大連続区間を計算
     const numSlots = slots.length;
     for (let i = 0; i < numSlots; i++) {
       if (slots[i].available.length === 0) continue;
 
-      // スロット i から始まる共通参加可能メンバー集合を維持しながら右に伸ばす
       let currentAvail = [...slots[i].available];
 
       for (let j = i; j < numSlots; j++) {
@@ -418,13 +312,10 @@ const calculateAggregatedResults = (
         const duration = (j - i + 1) * 30;
         if (duration < minDurationMinutes) continue;
 
-        // 極大性チェック:
-        // 1) 左端 i-1 のスロットでも currentAvail 全員が空いているなら極大ではない
         const canExtendLeft =
           i > 0 &&
           currentAvail.every(p => slots[i - 1].available.some(ap => ap.participantId === p.participantId));
 
-        // 2) 右端 j+1 のスロットでも currentAvail 全員が空いているなら極大ではない
         const canExtendRight =
           j < numSlots - 1 &&
           currentAvail.every(p => slots[j + 1].available.some(ap => ap.participantId === p.participantId));
@@ -456,7 +347,6 @@ const calculateAggregatedResults = (
     }
   }
 
-  // ソート順: 1. 参加可能人数が多い順 -> 2. 連続時間が長い順 -> 3. 日付・時刻が早い順
   rawIntervals.sort((a, b) => {
     if (b.availableParticipants.length !== a.availableParticipants.length) {
       return b.availableParticipants.length - a.availableParticipants.length;
@@ -470,7 +360,6 @@ const calculateAggregatedResults = (
     return timeToMinutes(a.start) - timeToMinutes(b.start);
   });
 
-  // 同一日付・同一時間帯で包含される冗長な候補を除外してスッキリ表示
   const deduplicated: RankedCandidate[] = [];
   for (const cand of rawIntervals) {
     const isRedundant = deduplicated.some(existing => {
@@ -479,7 +368,6 @@ const calculateAggregatedResults = (
       const exEnd = timeToMinutes(existing.end);
       const cStart = timeToMinutes(cand.start);
       const cEnd = timeToMinutes(cand.end);
-      // 既に上位（人数が多いまたは同等）の区間に完全に含まれていて人数も同じか少ない場合はスキップ
       const isInside = cStart >= exStart && cEnd <= exEnd;
       const isOverlappingSameCount =
         existing.availableParticipants.length === cand.availableParticipants.length &&
@@ -499,12 +387,11 @@ const calculateAggregatedResults = (
 };
 
 // ==========================================
-// 6. メインコンポーネント
+// 5. メインコンポーネント
 // ==========================================
 export default function App() {
   // --- Auth & Firestore State ---
   const [user, setUser] = useState<User | null>(null);
-  const [authReady, setAuthReady] = useState(false);
   const [eventsMap, setEventsMap] = useState<Record<string, ScheduleEvent>>({});
   const [currentEventId, setCurrentEventId] = useState<string | null>(null);
   const [userDrafts, setUserDrafts] = useState<Record<string, DraftData>>({});
@@ -513,12 +400,10 @@ export default function App() {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   // --- Navigation State ---
-  // 'top' | 'create' | 'home' | 'input' | 'results' | 'members'
   const [activeScreen, setActiveScreen] = useState<'top' | 'create' | 'home' | 'input' | 'results' | 'members'>('top');
-  const [showTechGuideModal, setShowTechGuideModal] = useState(false);
 
   // --- Create Event Form State ---
-  const [newTitle, setNewTitle] = useState('ゼミ6人でご飯会🍕');
+  const [newTitle, setNewTitle] = useState('');
   const [newOrganizer, setNewOrganizer] = useState('');
   const [newExpectedCount, setNewExpectedCount] = useState(6);
   const [newDayStart, setNewDayStart] = useState('09:00');
@@ -530,7 +415,7 @@ export default function App() {
     return d;
   });
 
-  // --- Availability Input State (最重要: 時間帯まとめ指定UI) ---
+  // --- Availability Input State ---
   const [editingParticipantId, setEditingParticipantId] = useState<string | null>(null);
   const [inputNickname, setInputNickname] = useState('');
   const [inputPinCode, setInputPinCode] = useState('1234');
@@ -544,6 +429,13 @@ export default function App() {
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
+  // --- Drag Selection State (ドラッグで空き時間を追加) ---
+  const [dragState, setDragState] = useState<{
+    date: string;
+    startMins: number;
+    currentMins: number;
+  } | null>(null);
+
   // --- PIN Verification Modal for other devices ---
   const [pinPromptTarget, setPinPromptTarget] = useState<Participant | null>(null);
   const [pinPromptInput, setPinPromptInput] = useState('');
@@ -553,7 +445,6 @@ export default function App() {
   const [minDurationFilter, setMinDurationFilter] = useState<number>(60);
   const [selectedTimelineDate, setSelectedTimelineDate] = useState<string | null>(null);
 
-  // トースト通知ヘルパー
   const showToast = (msg: string) => {
     setToastMessage(msg);
     setTimeout(() => {
@@ -562,9 +453,9 @@ export default function App() {
   };
 
   // ==========================================
-  // 1) Firebase Authentication 初期化 (RULE 3 準拠)
+  // 1) Firebase Authentication 初期化
   // ==========================================
-useEffect(() => {
+  useEffect(() => {
     const initAuth = async () => {
       try {
         await signInAnonymously(auth);
@@ -577,7 +468,6 @@ useEffect(() => {
 
     const unsubscribe = onAuthStateChanged(auth, (u) => {
       setUser(u);
-      setAuthReady(true);
     });
     return () => unsubscribe();
   }, []);
@@ -592,12 +482,12 @@ useEffect(() => {
         setActiveScreen('home');
       }
     } catch {
-      // ignore URL parsing issues in iframe
+      // ignore URL parsing issues
     }
   }, []);
 
   // ==========================================
-  // 2) Firestore リアルタイム購読 (RULE 1, 2, 3 準拠)
+  // 2) Firestore リアルタイム購読
   // ==========================================
   useEffect(() => {
     if (!user) return;
@@ -623,7 +513,6 @@ useEffect(() => {
       }
     );
 
-    // ユーザー個人の入力途中下書きデータの購読
     const draftsCol = collection(db, 'artifacts', appId, 'users', user.uid, 'drafts');
     const unsubDrafts = onSnapshot(
       draftsCol,
@@ -648,13 +537,11 @@ useEffect(() => {
     };
   }, [user]);
 
-  // 現在選択されているイベント
   const currentEvent: ScheduleEvent | null = useMemo(() => {
     if (!currentEventId) return null;
     return eventsMap[currentEventId] || null;
   }, [currentEventId, eventsMap]);
 
-  // タイムライン選択日の初期化
   useEffect(() => {
     if (currentEvent && currentEvent.candidateDates.length > 0) {
       if (!selectedTimelineDate || !currentEvent.candidateDates.includes(selectedTimelineDate)) {
@@ -663,35 +550,14 @@ useEffect(() => {
     }
   }, [currentEvent, selectedTimelineDate]);
 
-  // 集計結果のメモ化計算
   const aggregated = useMemo(() => {
     if (!currentEvent) return null;
     return calculateAggregatedResults(currentEvent, minDurationFilter);
   }, [currentEvent, minDurationFilter]);
 
   // ==========================================
-  // 3) アクション関数（サンプル生成・イベント作成・下書き保存・回答送信）
+  // 3) アクション関数（イベント作成・下書き保存・回答送信）
   // ==========================================
-
-  /** サンプルイベント（ゼミ6人の予定調整）をワンタップでロード */
-  const handleLoadSampleEvent = async () => {
-    if (!user) return;
-    setIsSaving(true);
-    setErrorMessage(null);
-    try {
-      const sample = createSampleUniversityEvent(user.uid);
-      const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'schedule_events', sample.eventId);
-      await setDoc(docRef, sample);
-      setCurrentEventId(sample.eventId);
-      setActiveScreen('home');
-      showToast('6人グループのサンプル予定を読み込みました！');
-    } catch (err) {
-      console.error('Sample creation error:', err);
-      setErrorMessage('サンプルデータの作成に失敗しました。');
-    } finally {
-      setIsSaving(false);
-    }
-  };
 
   /** 新規予定調整イベントを作成 */
   const handleCreateEvent = async (e: React.FormEvent) => {
@@ -722,7 +588,7 @@ useEffect(() => {
         eventId,
         title: trimmedTitle,
         organizerName: trimmedOrg,
-        expectedCount: Math.max(2, Math.min(30, newExpectedCount)),
+        expectedCount: Math.max(2, Math.min(50, newExpectedCount)),
         candidateDates: sortedDates,
         dayStartTime: newDayStart,
         dayEndTime: newDayEnd,
@@ -735,7 +601,6 @@ useEffect(() => {
       await setDoc(docRef, newEvent);
 
       setCurrentEventId(eventId);
-      // 幹事がそのまま自分の空き時間を入力できるように初期値をセット
       startNewParticipantInput(newEvent, trimmedOrg);
       showToast('予定調整を作成しました！続けてあなたの空き時間を登録できます');
     } catch (err) {
@@ -778,7 +643,7 @@ useEffect(() => {
     setActiveScreen('input');
   };
 
-  /** 既存参加者の編集を開始（同一端末ならワンタップ、別端末なら4桁暗証番号確認） */
+  /** 既存参加者の編集を開始 */
   const handleRequestEditParticipant = (p: Participant) => {
     if (!currentEvent) return;
     if (user && p.ownerUid === user.uid) {
@@ -840,16 +705,16 @@ useEffect(() => {
   };
 
   // ==========================================
-  // 4) 空き時間レンジ操作（追加・プリセット・終日指定・削除・コピー）
+  // 4) 空き時間レンジ操作（追加・ドラッグ・プリセット・終日・削除・コピー）
   // ==========================================
   const currentEditingDate = currentEvent ? currentEvent.candidateDates[selectedDateIndex] : '';
   const currentDayData: DayAvailability = currentEditingDate && availabilityDraft[currentEditingDate]
     ? availabilityDraft[currentEditingDate]
     : { date: currentEditingDate, status: 'unanswered', ranges: [] };
 
-  /** 指定した日付に時間帯レンジ（開始〜終了）を追加 */
-  const handleAddTimeRange = (startStr: string, endStr: string) => {
-    if (!currentEditingDate) return;
+  /** 任意の日付に時間帯レンジ（開始〜終了）を追加（既存データを消さずに自動結合） */
+  const handleAddTimeRangeForDate = (targetDate: string, startStr: string, endStr: string) => {
+    if (!targetDate) return;
     setRangeWarning(null);
 
     const startM = timeToMinutes(startStr);
@@ -866,13 +731,19 @@ useEffect(() => {
       end: endStr
     };
 
-    const existingRanges = currentDayData.status === 'available' ? currentDayData.ranges : [];
+    const targetDayData = availabilityDraft[targetDate] || {
+      date: targetDate,
+      status: 'unanswered',
+      ranges: []
+    };
+
+    const existingRanges = targetDayData.status === 'available' ? targetDayData.ranges : [];
     const { merged, didMerge } = mergeTimeRanges([...existingRanges, newRange]);
 
     const nextAvail: Record<string, DayAvailability> = {
       ...availabilityDraft,
-      [currentEditingDate]: {
-        date: currentEditingDate,
+      [targetDate]: {
+        date: targetDate,
         status: 'available',
         ranges: merged
       }
@@ -882,11 +753,39 @@ useEffect(() => {
     saveDraftToCloud(nextAvail);
 
     if (didMerge) {
-      showToast('重なっている時間帯を自動で1つにまとめました✨');
+      showToast(`${formatJapaneseDate(targetDate).short} の重なる時間帯を自動でまとめました✨`);
     } else {
-      showToast(`${startStr}〜${endStr} を追加しました`);
+      showToast(`${formatJapaneseDate(targetDate).short} に ${startStr}〜${endStr} を追加しました`);
     }
   };
+
+  /** 現在選択中の日付に時間帯を追加 */
+  const handleAddTimeRange = (startStr: string, endStr: string) => {
+    handleAddTimeRangeForDate(currentEditingDate, startStr, endStr);
+  };
+
+  /** ドラッグ操作の完了処理（マウスを離した時に空き時間を追加） */
+  useEffect(() => {
+    if (!dragState) return;
+
+    const handleGlobalMouseUp = () => {
+      const minSlot = Math.min(dragState.startMins, dragState.currentMins);
+      const maxSlot = Math.max(dragState.startMins, dragState.currentMins) + 30;
+      const startStr = minutesToTime(minSlot);
+      const endStr = minutesToTime(maxSlot);
+      const targetDate = dragState.date;
+
+      setDragState(null);
+      handleAddTimeRangeForDate(targetDate, startStr, endStr);
+    };
+
+    window.addEventListener('mouseup', handleGlobalMouseUp);
+    window.addEventListener('touchend', handleGlobalMouseUp);
+    return () => {
+      window.removeEventListener('mouseup', handleGlobalMouseUp);
+      window.removeEventListener('touchend', handleGlobalMouseUp);
+    };
+  });
 
   /** 「終日空いている」をワンタップでセット */
   const handleSetAllDayAvailable = () => {
@@ -927,20 +826,26 @@ useEffect(() => {
     showToast('「この日は空いていない」に設定しました');
   };
 
-  /** 登録済み時間帯カードの削除 */
-  const handleRemoveTimeRange = (rangeId: string) => {
-    if (!currentEditingDate) return;
-    const filtered = currentDayData.ranges.filter(r => r.id !== rangeId);
+  /** 指定日の特定の時間帯カードを削除 */
+  const handleRemoveTimeRangeForDate = (targetDate: string, rangeId: string) => {
+    const dayData = availabilityDraft[targetDate];
+    if (!dayData) return;
+    const filtered = dayData.ranges.filter(r => r.id !== rangeId);
     const nextAvail: Record<string, DayAvailability> = {
       ...availabilityDraft,
-      [currentEditingDate]: {
-        date: currentEditingDate,
+      [targetDate]: {
+        date: targetDate,
         status: filtered.length > 0 ? 'available' : 'unanswered',
         ranges: filtered
       }
     };
     setAvailabilityDraft(nextAvail);
     saveDraftToCloud(nextAvail);
+  };
+
+  /** 現在選択中の日の時間帯カードを削除 */
+  const handleRemoveTimeRange = (rangeId: string) => {
+    handleRemoveTimeRangeForDate(currentEditingDate, rangeId);
   };
 
   /** 登録済み時間帯カードの開始・終了時刻を直接修正 */
@@ -1085,7 +990,7 @@ useEffect(() => {
       url.searchParams.set('event', currentEvent.eventId);
       return url.toString();
     } catch {
-      return `https://akimikke.example.com/?event=${currentEvent.eventId}`;
+      return `${window.location.origin}/?event=${currentEvent.eventId}`;
     }
   }, [currentEvent]);
 
@@ -1096,7 +1001,6 @@ useEffect(() => {
       await navigator.clipboard.writeText(shareText);
       showToast('LINE共有用のメッセージとURLをコピーしました！');
     } catch {
-      // Fallback copy
       const textarea = document.createElement('textarea');
       textarea.value = shareText;
       document.body.appendChild(textarea);
@@ -1136,11 +1040,23 @@ useEffect(() => {
     return generateTimeOptions(currentEvent.dayStartTime, currentEvent.dayEndTime);
   }, [currentEvent]);
 
+  // ドラッググリッド用の30分刻みスロット配列（開始時刻分）
+  const gridTimeSlots = useMemo(() => {
+    if (!currentEvent) return [];
+    const startM = timeToMinutes(currentEvent.dayStartTime);
+    const endM = timeToMinutes(currentEvent.dayEndTime);
+    const slots: number[] = [];
+    for (let m = startM; m < endM; m += 30) {
+      slots.push(m);
+    }
+    return slots;
+  }, [currentEvent]);
+
   // ==========================================
-  // 7. レンダリング
+  // 6. レンダリング
   // ==========================================
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-800 pb-28 font-sans selection:bg-emerald-100 selection:text-emerald-900">
+    <div className="min-h-screen bg-slate-50 text-slate-800 pb-28 md:pb-12 font-sans selection:bg-emerald-100 selection:text-emerald-900">
       {/* トースト通知 */}
       {toastMessage && (
         <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 w-[92%] max-w-md bg-slate-900/95 text-white px-4 py-3 rounded-2xl shadow-xl flex items-center gap-2.5 text-sm font-medium animate-bounce">
@@ -1149,12 +1065,12 @@ useEffect(() => {
         </div>
       )}
 
-      {/* 上部ヘッダー */}
+      {/* 上部ヘッダー（スマホ・PC両対応） */}
       <header className="sticky top-0 z-30 bg-white/95 backdrop-blur border-b border-slate-200 px-4 py-3">
-        <div className="max-w-lg mx-auto flex items-center justify-between">
+        <div className="max-w-5xl mx-auto flex items-center justify-between gap-4">
           <button
             onClick={() => setActiveScreen('top')}
-            className="flex items-center gap-2 text-left group focus:outline-none"
+            className="flex items-center gap-2.5 text-left group focus:outline-none shrink-0"
           >
             <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center text-white shadow-sm">
               <Calendar className="w-5 h-5" />
@@ -1163,39 +1079,75 @@ useEffect(() => {
               <div className="flex items-center gap-1.5">
                 <span className="font-extrabold text-lg tracking-tight text-slate-900">アキミッケ</span>
                 <span className="text-[10px] font-bold bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full">
-                  レンジ入力式
+                  時間帯・ドラッグ入力対応
                 </span>
               </div>
               <p className="text-[11px] text-slate-500 leading-none">30分ごとの○×不要！みんなの空き時間調整</p>
             </div>
           </button>
 
-          <div className="flex items-center gap-1.5">
-            <button
-              onClick={() => setShowTechGuideModal(true)}
-              className="flex items-center gap-1 text-xs font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 px-2.5 py-2 rounded-xl transition"
-              title="設計・Firebase・デプロイ手順"
-            >
-              <FileCode className="w-4 h-4 text-teal-600" />
-              <span className="hidden sm:inline">設計・手順</span>
-            </button>
-            {currentEvent && activeScreen !== 'top' && (
+          {/* PC用ヘッダーナビゲーション */}
+          {currentEvent && activeScreen !== 'top' && activeScreen !== 'create' && (
+            <div className="hidden md:flex items-center gap-1 bg-slate-100 p-1 rounded-2xl">
+              <button
+                onClick={() => setActiveScreen('home')}
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${
+                  activeScreen === 'home' ? 'bg-white text-emerald-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <Share2 className="w-4 h-4" />
+                <span>共有・ホーム</span>
+              </button>
+              <button
+                onClick={() => {
+                  if (activeScreen !== 'input') startNewParticipantInput(currentEvent);
+                }}
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${
+                  activeScreen === 'input' ? 'bg-white text-emerald-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <Clock className="w-4 h-4" />
+                <span>空き時間入力</span>
+              </button>
+              <button
+                onClick={() => setActiveScreen('results')}
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${
+                  activeScreen === 'results' ? 'bg-white text-emerald-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <BarChart3 className="w-4 h-4" />
+                <span>集計ランキング</span>
+              </button>
+              <button
+                onClick={() => setActiveScreen('members')}
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${
+                  activeScreen === 'members' ? 'bg-white text-emerald-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <Users className="w-4 h-4" />
+                <span>回答状況 ({currentEvent.participants.length})</span>
+              </button>
+            </div>
+          )}
+
+          <div className="flex items-center gap-2">
+            {activeScreen !== 'top' && (
               <button
                 onClick={() => setActiveScreen('top')}
-                className="text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 px-2.5 py-2 rounded-xl transition"
+                className="text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 px-3 py-2 rounded-xl transition"
               >
-                一覧へ
+                トップ・一覧へ
               </button>
             )}
           </div>
         </div>
       </header>
 
-      {/* メインコンテナ（スマホ縦画面最適化 max-w-lg） */}
-      <main className="max-w-lg mx-auto px-4 pt-4">
+      {/* メインコンテナ（スマホ＆PCレスポンシブ対応） */}
+      <main className="max-w-5xl mx-auto px-4 pt-5">
         {/* エラーメッセージバナー */}
         {errorMessage && (
-          <div className="mb-4 bg-rose-50 border border-rose-200 rounded-2xl p-3.5 flex items-start gap-2.5 text-rose-800 text-sm">
+          <div className="mb-5 bg-rose-50 border border-rose-200 rounded-2xl p-4 flex items-start gap-2.5 text-rose-800 text-sm">
             <AlertCircle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
             <div className="flex-1">
               <p className="font-bold">確認してください</p>
@@ -1214,21 +1166,21 @@ useEffect(() => {
             画面1: トップ画面
         ==================================================== */}
         {activeScreen === 'top' && (
-          <div className="space-y-5">
-            {/* ヒーローカード */}
-            <div className="bg-gradient-to-br from-emerald-600 via-teal-600 to-cyan-700 rounded-3xl p-6 text-white shadow-lg">
-              <div className="inline-flex items-center gap-1.5 bg-white/20 backdrop-blur px-3 py-1 rounded-full text-xs font-bold mb-3">
-                <Sparkles className="w-3.5 h-3.5" />
-                <span>LINEグループの大学生6人に最適！</span>
-              </div>
-              <h1 className="text-2xl font-extrabold leading-snug mb-2">
-                30分ごとの○×ポチポチは<br />もう終わり！
-              </h1>
-              <p className="text-emerald-50 text-sm leading-relaxed mb-5">
-                「13:00〜18:00」「21:00〜23:00」のように空いている時間帯をまとめて選ぶだけ。全員が集まれるベストな日時を自動で見つけます。
-              </p>
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+            {/* 左カラム: ヒーローカード & 使い方 */}
+            <div className="lg:col-span-7 space-y-5">
+              <div className="bg-gradient-to-br from-emerald-600 via-teal-600 to-cyan-700 rounded-3xl p-6 sm:p-8 text-white shadow-lg">
+                <div className="inline-flex items-center gap-1.5 bg-white/20 backdrop-blur px-3 py-1 rounded-full text-xs font-bold mb-3">
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>LINEグループの予定調整に最適！</span>
+                </div>
+                <h1 className="text-2xl sm:text-3xl font-extrabold leading-snug mb-3">
+                  30分ごとの○×ポチポチは<br />もう終わり！
+                </h1>
+                <p className="text-emerald-50 text-sm sm:text-base leading-relaxed mb-6">
+                  「13:00〜18:00」のように時間帯をまとめて選ぶか、カレンダーをドラッグしてなぞるだけ。みんなが集まれるベストな日時を自動で見つけます。
+                </p>
 
-              <div className="space-y-2.5">
                 <button
                   onClick={() => {
                     setErrorMessage(null);
@@ -1239,58 +1191,49 @@ useEffect(() => {
                   <Plus className="w-5 h-5 text-emerald-600 stroke-[2.5]" />
                   <span>新しい予定調整を作る</span>
                 </button>
-
-                <button
-                  onClick={handleLoadSampleEvent}
-                  disabled={isSaving || !authReady}
-                  className="w-full py-3.5 px-4 bg-emerald-800/60 hover:bg-emerald-800/80 border border-white/25 text-white font-bold text-sm rounded-2xl transition flex items-center justify-center gap-2"
-                >
-                  <Sparkles className="w-4 h-4 text-amber-300" />
-                  <span>6人グループのサンプル予定で今すぐ試す🍕</span>
-                </button>
               </div>
-            </div>
 
-            {/* 使い方3ステップ */}
-            <div className="bg-white rounded-3xl p-5 border border-slate-200/80 shadow-sm">
-              <h2 className="font-bold text-slate-900 text-base mb-3.5 flex items-center gap-2">
-                <Info className="w-5 h-5 text-emerald-600" />
-                <span>かんたん3ステップの使い方</span>
-              </h2>
-              <div className="grid grid-cols-1 gap-3">
-                <div className="flex items-start gap-3 bg-slate-50 p-3.5 rounded-2xl">
-                  <span className="w-7 h-7 rounded-full bg-emerald-600 text-white font-bold text-xs flex items-center justify-center shrink-0 mt-0.5">
-                    1
-                  </span>
-                  <div>
-                    <p className="font-bold text-sm text-slate-900">幹事が候補日を選んでLINEでURL共有</p>
-                    <p className="text-xs text-slate-600 mt-0.5">アプリ登録・ログイン不要。URLを開くだけで参加できます。</p>
+              {/* 使い方3ステップ */}
+              <div className="bg-white rounded-3xl p-5 sm:p-6 border border-slate-200/80 shadow-sm">
+                <h2 className="font-bold text-slate-900 text-base mb-4 flex items-center gap-2">
+                  <Info className="w-5 h-5 text-emerald-600" />
+                  <span>かんたん3ステップの使い方</span>
+                </h2>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="flex sm:flex-col items-start gap-3 bg-slate-50 p-4 rounded-2xl">
+                    <span className="w-7 h-7 rounded-full bg-emerald-600 text-white font-bold text-xs flex items-center justify-center shrink-0">
+                      1
+                    </span>
+                    <div>
+                      <p className="font-bold text-sm text-slate-900">候補日を選んでLINEでURL共有</p>
+                      <p className="text-xs text-slate-600 mt-1">アプリ登録・ログイン不要。URLを開くだけで参加できます。</p>
+                    </div>
                   </div>
-                </div>
-                <div className="flex items-start gap-3 bg-slate-50 p-3.5 rounded-2xl">
-                  <span className="w-7 h-7 rounded-full bg-emerald-600 text-white font-bold text-xs flex items-center justify-center shrink-0 mt-0.5">
-                    2
-                  </span>
-                  <div>
-                    <p className="font-bold text-sm text-slate-900">「13:00〜18:00」など時間帯でまとめて登録</p>
-                    <p className="text-xs text-slate-600 mt-0.5">「終日空いている」「5限後(18:00〜23:00)」もワンタップで入力完了！</p>
+                  <div className="flex sm:flex-col items-start gap-3 bg-slate-50 p-4 rounded-2xl">
+                    <span className="w-7 h-7 rounded-full bg-emerald-600 text-white font-bold text-xs flex items-center justify-center shrink-0">
+                      2
+                    </span>
+                    <div>
+                      <p className="font-bold text-sm text-slate-900">ドラッグやボタンで空き時間を登録</p>
+                      <p className="text-xs text-slate-600 mt-1">カレンダーをなぞるか、「13:00〜18:00」などのボタンでサクッと入力！</p>
+                    </div>
                   </div>
-                </div>
-                <div className="flex items-start gap-3 bg-slate-50 p-3.5 rounded-2xl">
-                  <span className="w-7 h-7 rounded-full bg-emerald-600 text-white font-bold text-xs flex items-center justify-center shrink-0 mt-0.5">
-                    3
-                  </span>
-                  <div>
-                    <p className="font-bold text-sm text-slate-900">6人が集まれる最長の日時ランキングを自動抽出</p>
-                    <p className="text-xs text-slate-600 mt-0.5">参加できる人・できない人・未回答の人がひと目でわかります。</p>
+                  <div className="flex sm:flex-col items-start gap-3 bg-slate-50 p-4 rounded-2xl">
+                    <span className="w-7 h-7 rounded-full bg-emerald-600 text-white font-bold text-xs flex items-center justify-center shrink-0">
+                      3
+                    </span>
+                    <div>
+                      <p className="font-bold text-sm text-slate-900">集まれる日時ランキングを自動抽出</p>
+                      <p className="text-xs text-slate-600 mt-1">参加できる人・できない人・未回答の人がひと目でわかります。</p>
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
 
-            {/* 保存済みの予定調整一覧 */}
-            <div className="bg-white rounded-3xl p-5 border border-slate-200/80 shadow-sm">
-              <div className="flex items-center justify-between mb-3">
+            {/* 右カラム: 保存済みの予定調整一覧 */}
+            <div className="lg:col-span-5 bg-white rounded-3xl p-5 sm:p-6 border border-slate-200/80 shadow-sm">
+              <div className="flex items-center justify-between mb-4">
                 <h2 className="font-bold text-slate-900 text-base flex items-center gap-2">
                   <Users className="w-5 h-5 text-teal-600" />
                   <span>作成・共有されている予定調整</span>
@@ -1303,10 +1246,10 @@ useEffect(() => {
               </div>
 
               {Object.keys(eventsMap).length === 0 ? (
-                <div className="text-center py-8 bg-slate-50 rounded-2xl border border-dashed border-slate-200 px-4">
+                <div className="text-center py-10 bg-slate-50 rounded-2xl border border-dashed border-slate-200 px-4">
                   <p className="text-sm font-semibold text-slate-600 mb-1">まだ予定調整がありません</p>
-                  <p className="text-xs text-slate-500 mb-4">
-                    上の「6人グループのサンプル予定で今すぐ試す」または「新しい予定調整を作る」をタップしてください。
+                  <p className="text-xs text-slate-500">
+                    「新しい予定調整を作る」から最初のイベントを作成してください。
                   </p>
                 </div>
               ) : (
@@ -1328,7 +1271,7 @@ useEffect(() => {
                             <div className="flex items-center gap-2">
                               <span className="font-bold text-slate-900 text-sm truncate">{ev.title}</span>
                               <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 shrink-0">
-                                {answered}/{ev.expectedCount}人回答
+                                {answered}人回答
                               </span>
                             </div>
                             <p className="text-xs text-slate-500 mt-1">
@@ -1349,206 +1292,206 @@ useEffect(() => {
             画面2: 予定調整の作成画面
         ==================================================== */}
         {activeScreen === 'create' && (
-          <form onSubmit={handleCreateEvent} className="space-y-5">
-            <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-sm space-y-5">
-              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                <h1 className="text-lg font-extrabold text-slate-900">新しい予定調整を作る</h1>
-                <span className="text-xs font-semibold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full">
+          <form onSubmit={handleCreateEvent}>
+            <div className="bg-white rounded-3xl p-5 sm:p-7 border border-slate-200 shadow-sm space-y-6">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+                <h1 className="text-lg sm:text-xl font-extrabold text-slate-900">新しい予定調整を作る</h1>
+                <span className="text-xs font-semibold text-emerald-700 bg-emerald-50 px-3 py-1 rounded-full">
                   幹事用
                 </span>
               </div>
 
-              {/* イベント名 */}
-              <div>
-                <label className="block text-sm font-bold text-slate-800 mb-1.5">
-                  1. イベント名 <span className="text-rose-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={newTitle}
-                  onChange={e => setNewTitle(e.target.value)}
-                  placeholder="例：6人でご飯、ゼミミーティング"
-                  className="w-full px-4 py-3.5 rounded-2xl border border-slate-300 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 text-base font-medium outline-none"
-                />
-              </div>
-
-              {/* 幹事のニックネーム & 参加予定人数 */}
-              <div className="grid grid-cols-3 gap-3">
-                <div className="col-span-2">
-                  <label className="block text-sm font-bold text-slate-800 mb-1.5">
-                    2. 幹事のニックネーム
-                  </label>
-                  <input
-                    type="text"
-                    value={newOrganizer}
-                    onChange={e => setNewOrganizer(e.target.value)}
-                    placeholder="例：たくみ"
-                    className="w-full px-4 py-3.5 rounded-2xl border border-slate-300 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 text-base outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-bold text-slate-800 mb-1.5">
-                    参加予定数
-                  </label>
-                  <select
-                    value={newExpectedCount}
-                    onChange={e => setNewExpectedCount(Number(e.target.value))}
-                    className="w-full px-3 py-3.5 rounded-2xl border border-slate-300 bg-white font-bold text-base text-slate-800 outline-none focus:border-emerald-500"
-                  >
-                    {[3, 4, 5, 6, 7, 8, 9, 10, 12].map(num => (
-                      <option key={num} value={num}>
-                        {num}人
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              {/* 候補日・期間の設定 */}
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <label className="text-sm font-bold text-slate-800">
-                    3. 候補日をタップして選択 ({selectedCandidateDates.length}日選択中)
-                  </label>
-                </div>
-
-                {/* クイック期間選択ボタン */}
-                <div className="flex flex-wrap gap-1.5 mb-3">
-                  <button
-                    type="button"
-                    onClick={() => setSelectedCandidateDates(getUpcomingDates(5, 1))}
-                    className="text-xs font-bold bg-emerald-50 text-emerald-700 hover:bg-emerald-100 px-3 py-2 rounded-xl transition"
-                  >
-                    明日から5日間
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedCandidateDates(getUpcomingDates(7, 1))}
-                    className="text-xs font-bold bg-emerald-50 text-emerald-700 hover:bg-emerald-100 px-3 py-2 rounded-xl transition"
-                  >
-                    明日から7日間
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedCandidateDates([])}
-                    className="text-xs font-semibold bg-slate-100 text-slate-600 hover:bg-slate-200 px-3 py-2 rounded-xl transition"
-                  >
-                    クリア
-                  </button>
-                </div>
-
-                {/* カレンダー */}
-                <div className="border border-slate-200 rounded-2xl p-3 bg-slate-50/60">
-                  <div className="flex items-center justify-between mb-2 px-1">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setCalendarBaseMonth(prev => new Date(prev.getFullYear(), prev.getMonth() - 1, 1))
-                      }
-                      className="p-2 rounded-xl hover:bg-slate-200 text-slate-700"
-                    >
-                      <ChevronLeft className="w-5 h-5" />
-                    </button>
-                    <span className="font-bold text-sm text-slate-800">
-                      {calendarDays.year}年 {calendarDays.month}月
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setCalendarBaseMonth(prev => new Date(prev.getFullYear(), prev.getMonth() + 1, 1))
-                      }
-                      className="p-2 rounded-xl hover:bg-slate-200 text-slate-700"
-                    >
-                      <ChevronRight className="w-5 h-5" />
-                    </button>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* 左側: 基本設定 */}
+                <div className="space-y-5">
+                  <div>
+                    <label className="block text-sm font-bold text-slate-800 mb-1.5">
+                      1. イベント名 <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={newTitle}
+                      onChange={e => setNewTitle(e.target.value)}
+                      placeholder="例：打ち上げご飯会、ゼミミーティング"
+                      className="w-full px-4 py-3.5 rounded-2xl border border-slate-300 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 text-base font-medium outline-none"
+                    />
                   </div>
 
-                  <div className="grid grid-cols-7 gap-1 text-center text-[11px] font-bold text-slate-500 mb-1">
-                    {WEEKDAYS.map((w, idx) => (
-                      <div key={w} className={idx === 0 ? 'text-rose-500' : idx === 6 ? 'text-blue-600' : ''}>
-                        {w}
-                      </div>
-                    ))}
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="col-span-2">
+                      <label className="block text-sm font-bold text-slate-800 mb-1.5">
+                        2. 幹事のニックネーム
+                      </label>
+                      <input
+                        type="text"
+                        value={newOrganizer}
+                        onChange={e => setNewOrganizer(e.target.value)}
+                        placeholder="例：たくみ"
+                        className="w-full px-4 py-3.5 rounded-2xl border border-slate-300 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 text-base outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-bold text-slate-800 mb-1.5">
+                        参加予定人数
+                      </label>
+                      <select
+                        value={newExpectedCount}
+                        onChange={e => setNewExpectedCount(Number(e.target.value))}
+                        className="w-full px-3 py-3.5 rounded-2xl border border-slate-300 bg-white font-bold text-base text-slate-800 outline-none focus:border-emerald-500"
+                      >
+                        {[2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 15, 20].map(num => (
+                          <option key={num} value={num}>
+                            {num}人
+                          </option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
 
-                  <div className="grid grid-cols-7 gap-1">
-                    {calendarDays.cells.map((ymd, idx) => {
-                      if (!ymd) return <div key={`empty-${idx}`} className="h-10" />;
-                      const isSelected = selectedCandidateDates.includes(ymd);
-                      const dayNum = Number(ymd.split('-')[2]);
-                      return (
-                        <button
-                          type="button"
-                          key={ymd}
-                          onClick={() => {
-                            setSelectedCandidateDates(prev =>
-                              prev.includes(ymd) ? prev.filter(d => d !== ymd) : [...prev, ymd]
-                            );
-                          }}
-                          className={`h-10 rounded-xl font-bold text-sm transition flex items-center justify-center ${
-                            isSelected
-                              ? 'bg-emerald-600 text-white shadow-sm scale-[1.02]'
-                              : 'bg-white text-slate-700 hover:bg-emerald-50 border border-slate-200/70'
-                          }`}
+                  <div>
+                    <label className="block text-sm font-bold text-slate-800 mb-1.5">
+                      3. 集合可能な時間帯の範囲（24時間表記）
+                    </label>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <span className="text-xs text-slate-500 block mb-1">開始時刻</span>
+                        <select
+                          value={newDayStart}
+                          onChange={e => setNewDayStart(e.target.value)}
+                          className="w-full px-3.5 py-3 rounded-2xl border border-slate-300 bg-white font-bold text-base"
                         >
-                          {dayNum}
-                        </button>
-                      );
-                    })}
+                          {generateTimeOptions('06:00', '20:00').map(t => (
+                            <option key={t} value={t}>
+                              {t} から
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <span className="text-xs text-slate-500 block mb-1">終了時刻</span>
+                        <select
+                          value={newDayEnd}
+                          onChange={e => setNewDayEnd(e.target.value)}
+                          className="w-full px-3.5 py-3 rounded-2xl border border-slate-300 bg-white font-bold text-base"
+                        >
+                          {generateTimeOptions('12:00', '24:00').map(t => (
+                            <option key={t} value={t}>
+                              {t} まで
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 右側: 候補日カレンダー */}
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="text-sm font-bold text-slate-800">
+                      4. 候補日を選択 ({selectedCandidateDates.length}日選択中)
+                    </label>
+                  </div>
+
+                  <div className="flex flex-wrap gap-1.5 mb-3">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedCandidateDates(getUpcomingDates(5, 1))}
+                      className="text-xs font-bold bg-emerald-50 text-emerald-700 hover:bg-emerald-100 px-3 py-2 rounded-xl transition"
+                    >
+                      明日から5日間
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedCandidateDates(getUpcomingDates(7, 1))}
+                      className="text-xs font-bold bg-emerald-50 text-emerald-700 hover:bg-emerald-100 px-3 py-2 rounded-xl transition"
+                    >
+                      明日から7日間
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedCandidateDates([])}
+                      className="text-xs font-semibold bg-slate-100 text-slate-600 hover:bg-slate-200 px-3 py-2 rounded-xl transition"
+                    >
+                      クリア
+                    </button>
+                  </div>
+
+                  <div className="border border-slate-200 rounded-2xl p-3.5 bg-slate-50/60">
+                    <div className="flex items-center justify-between mb-2 px-1">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setCalendarBaseMonth(prev => new Date(prev.getFullYear(), prev.getMonth() - 1, 1))
+                        }
+                        className="p-2 rounded-xl hover:bg-slate-200 text-slate-700"
+                      >
+                        <ChevronLeft className="w-5 h-5" />
+                      </button>
+                      <span className="font-bold text-sm text-slate-800">
+                        {calendarDays.year}年 {calendarDays.month}月
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setCalendarBaseMonth(prev => new Date(prev.getFullYear(), prev.getMonth() + 1, 1))
+                        }
+                        className="p-2 rounded-xl hover:bg-slate-200 text-slate-700"
+                      >
+                        <ChevronRight className="w-5 h-5" />
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-7 gap-1 text-center text-[11px] font-bold text-slate-500 mb-1">
+                      {WEEKDAYS.map((w, idx) => (
+                        <div key={w} className={idx === 0 ? 'text-rose-500' : idx === 6 ? 'text-blue-600' : ''}>
+                          {w}
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="grid grid-cols-7 gap-1">
+                      {calendarDays.cells.map((ymd, idx) => {
+                        if (!ymd) return <div key={`empty-${idx}`} className="h-10" />;
+                        const isSelected = selectedCandidateDates.includes(ymd);
+                        const dayNum = Number(ymd.split('-')[2]);
+                        return (
+                          <button
+                            type="button"
+                            key={ymd}
+                            onClick={() => {
+                              setSelectedCandidateDates(prev =>
+                                prev.includes(ymd) ? prev.filter(d => d !== ymd) : [...prev, ymd]
+                              );
+                            }}
+                            className={`h-10 rounded-xl font-bold text-sm transition flex items-center justify-center ${
+                              isSelected
+                                ? 'bg-emerald-600 text-white shadow-sm scale-[1.02]'
+                                : 'bg-white text-slate-700 hover:bg-emerald-50 border border-slate-200/70'
+                            }`}
+                          >
+                            {dayNum}
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
                 </div>
               </div>
 
-              {/* 集合可能な時間帯（任意） */}
-              <div>
-                <label className="block text-sm font-bold text-slate-800 mb-1.5">
-                  4. 集合可能な時間帯の範囲（24時間表記）
-                </label>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <span className="text-xs text-slate-500 block mb-1">開始時刻</span>
-                    <select
-                      value={newDayStart}
-                      onChange={e => setNewDayStart(e.target.value)}
-                      className="w-full px-3.5 py-3 rounded-2xl border border-slate-300 bg-white font-bold text-base"
-                    >
-                      {generateTimeOptions('06:00', '20:00').map(t => (
-                        <option key={t} value={t}>
-                          {t} から
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <span className="text-xs text-slate-500 block mb-1">終了時刻</span>
-                    <select
-                      value={newDayEnd}
-                      onChange={e => setNewDayEnd(e.target.value)}
-                      className="w-full px-3.5 py-3 rounded-2xl border border-slate-300 bg-white font-bold text-base"
-                    >
-                      {generateTimeOptions('12:00', '24:00').map(t => (
-                        <option key={t} value={t}>
-                          {t} まで
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-              </div>
-
-              <div className="pt-2 flex gap-3">
+              <div className="pt-2 flex gap-3 border-t border-slate-100">
                 <button
                   type="button"
                   onClick={() => setActiveScreen('top')}
-                  className="w-1/3 py-4 rounded-2xl font-bold text-sm bg-slate-100 text-slate-700 hover:bg-slate-200 transition"
+                  className="w-1/3 sm:w-40 py-4 rounded-2xl font-bold text-sm bg-slate-100 text-slate-700 hover:bg-slate-200 transition"
                 >
                   戻る
                 </button>
                 <button
                   type="submit"
                   disabled={isSaving}
-                  className="w-2/3 py-4 rounded-2xl font-extrabold text-base bg-emerald-600 text-white shadow-md hover:bg-emerald-700 transition flex items-center justify-center gap-2"
+                  className="flex-1 py-4 rounded-2xl font-extrabold text-base bg-emerald-600 text-white shadow-md hover:bg-emerald-700 transition flex items-center justify-center gap-2"
                 >
                   <Check className="w-5 h-5" />
                   <span>予定調整を作成してURL発行</span>
@@ -1562,128 +1505,128 @@ useEffect(() => {
             画面3: 共有・参加画面（イベントホーム）
         ==================================================== */}
         {activeScreen === 'home' && currentEvent && (
-          <div className="space-y-4">
-            {/* イベント概要＆LINE共有カード */}
-            <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-sm space-y-4">
-              <div className="flex items-start justify-between gap-2">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+            {/* 左カラム: イベント概要＆LINE共有＆第1位プレビュー */}
+            <div className="lg:col-span-7 space-y-4">
+              <div className="bg-white rounded-3xl p-5 sm:p-6 border border-slate-200 shadow-sm space-y-4">
                 <div>
                   <span className="inline-flex items-center gap-1 text-xs font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full mb-1.5">
                     <Users className="w-3.5 h-3.5" />
                     幹事: {currentEvent.organizerName} ・ 予定人数 {currentEvent.expectedCount}人
                   </span>
-                  <h1 className="text-xl font-extrabold text-slate-900 leading-snug">
+                  <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900 leading-snug">
                     {currentEvent.title}
                   </h1>
                 </div>
-              </div>
 
-              {/* 回答状況プログレス */}
-              <div className="bg-slate-50 rounded-2xl p-3.5 border border-slate-200/70">
-                <div className="flex items-center justify-between text-xs font-bold mb-1.5">
-                  <span className="text-slate-700">
-                    現在の回答状況：{currentEvent.expectedCount}人中{' '}
-                    <span className="text-emerald-600 text-sm font-extrabold">
-                      {currentEvent.participants.length}人
-                    </span>{' '}
-                    回答済み
-                  </span>
-                  <span className="text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">
-                    未回答 {Math.max(0, currentEvent.expectedCount - currentEvent.participants.length)}人
-                  </span>
-                </div>
-                <div className="w-full h-2.5 bg-slate-200 rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-gradient-to-r from-emerald-500 to-teal-500 transition-all duration-300"
-                    style={{
-                      width: `${Math.min(
-                        100,
-                        Math.round((currentEvent.participants.length / currentEvent.expectedCount) * 100)
-                      )}%`
-                    }}
-                  />
-                </div>
-              </div>
-
-              {/* 空き時間を登録する大型メインCTAボタン */}
-              <div className="pt-1">
-                <button
-                  onClick={() => startNewParticipantInput(currentEvent)}
-                  className="w-full py-4 px-5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-extrabold text-base rounded-2xl shadow-md active:scale-[0.99] transition flex items-center justify-center gap-2"
-                >
-                  <UserPlus className="w-5 h-5" />
-                  <span>自分の空き時間をまとめて登録する</span>
-                </button>
-              </div>
-
-              {/* 共有URL & LINE共有ボタン */}
-              <div className="pt-2 border-t border-slate-100 space-y-2.5">
-                <p className="text-xs font-bold text-slate-600 flex items-center gap-1.5">
-                  <Share2 className="w-4 h-4 text-emerald-600" />
-                  <span>LINEグループにURLを送ってみんなに回答してもらおう</span>
-                </p>
-
-                <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2">
-                  <input
-                    type="text"
-                    readOnly
-                    value={shareUrl}
-                    className="w-full bg-transparent text-xs text-slate-600 font-mono outline-none truncate"
-                  />
+                {/* 回答状況プログレス */}
+                <div className="bg-slate-50 rounded-2xl p-3.5 border border-slate-200/70">
+                  <div className="flex items-center justify-between text-xs font-bold mb-1.5">
+                    <span className="text-slate-700">
+                      現在の回答状況：{currentEvent.expectedCount}人中{' '}
+                      <span className="text-emerald-600 text-sm font-extrabold">
+                        {currentEvent.participants.length}人
+                      </span>{' '}
+                      回答済み
+                    </span>
+                    <span className="text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">
+                      未回答 {Math.max(0, currentEvent.expectedCount - currentEvent.participants.length)}人
+                    </span>
+                  </div>
+                  <div className="w-full h-2.5 bg-slate-200 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-gradient-to-r from-emerald-500 to-teal-500 transition-all duration-300"
+                      style={{
+                        width: `${Math.min(
+                          100,
+                          Math.round((currentEvent.participants.length / currentEvent.expectedCount) * 100)
+                        )}%`
+                      }}
+                    />
+                  </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-2.5">
+                {/* 空き時間を登録する大型メインCTAボタン */}
+                <div className="pt-1">
                   <button
-                    type="button"
-                    onClick={handleShareOnLine}
-                    className="py-3 px-4 rounded-2xl font-bold text-sm bg-[#06C755] hover:bg-[#05b34c] text-white shadow-sm transition flex items-center justify-center gap-2"
+                    onClick={() => startNewParticipantInput(currentEvent)}
+                    className="w-full py-4 px-5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-extrabold text-base rounded-2xl shadow-md active:scale-[0.99] transition flex items-center justify-center gap-2"
                   >
-                    <Send className="w-4 h-4" />
-                    <span>LINEで共有</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleCopyShareUrl}
-                    className="py-3 px-4 rounded-2xl font-bold text-sm bg-slate-800 hover:bg-slate-900 text-white shadow-sm transition flex items-center justify-center gap-2"
-                  >
-                    <Copy className="w-4 h-4" />
-                    <span>URLをコピー</span>
+                    <UserPlus className="w-5 h-5" />
+                    <span>自分の空き時間を登録する</span>
                   </button>
                 </div>
+
+                {/* 共有URL & LINE共有ボタン */}
+                <div className="pt-2 border-t border-slate-100 space-y-2.5">
+                  <p className="text-xs font-bold text-slate-600 flex items-center gap-1.5">
+                    <Share2 className="w-4 h-4 text-emerald-600" />
+                    <span>LINEグループにURLを送ってみんなに回答してもらおう</span>
+                  </p>
+
+                  <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2">
+                    <input
+                      type="text"
+                      readOnly
+                      value={shareUrl}
+                      className="w-full bg-transparent text-xs text-slate-600 font-mono outline-none truncate"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <button
+                      type="button"
+                      onClick={handleShareOnLine}
+                      className="py-3 px-4 rounded-2xl font-bold text-sm bg-[#06C755] hover:bg-[#05b34c] text-white shadow-sm transition flex items-center justify-center gap-2"
+                    >
+                      <Send className="w-4 h-4" />
+                      <span>LINEで共有</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleCopyShareUrl}
+                      className="py-3 px-4 rounded-2xl font-bold text-sm bg-slate-800 hover:bg-slate-900 text-white shadow-sm transition flex items-center justify-center gap-2"
+                    >
+                      <Copy className="w-4 h-4" />
+                      <span>URLをコピー</span>
+                    </button>
+                  </div>
+                </div>
               </div>
+
+              {/* 現在の第1位候補プレビュー */}
+              {aggregated && aggregated.rankings.length > 0 && (
+                <div className="bg-emerald-50/90 border border-emerald-200 rounded-3xl p-4 sm:p-5 flex items-center justify-between gap-3">
+                  <div>
+                    <span className="text-[11px] font-extrabold uppercase tracking-wider text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">
+                      現在の第1位候補
+                    </span>
+                    <p className="font-extrabold text-slate-900 text-base sm:text-lg mt-1">
+                      {formatJapaneseDate(aggregated.rankings[0].date).full}{' '}
+                      {aggregated.rankings[0].start}〜{aggregated.rankings[0].end}
+                    </p>
+                    <p className="text-xs text-emerald-800 font-semibold mt-0.5">
+                      {currentEvent.expectedCount}人中 {aggregated.rankings[0].availableParticipants.length}人が参加可能
+                      {aggregated.rankings[0].unansweredCount > 0 &&
+                        `（未回答 ${aggregated.rankings[0].unansweredCount}人）`}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setActiveScreen('results')}
+                    className="shrink-0 bg-emerald-600 text-white font-bold text-xs px-4 py-2.5 rounded-xl shadow-sm hover:bg-emerald-700 transition"
+                  >
+                    集計詳細へ →
+                  </button>
+                </div>
+              )}
             </div>
 
-            {/* 全員が集まれる候補日時のクイックプレビュー */}
-            {aggregated && aggregated.rankings.length > 0 && (
-              <div className="bg-emerald-50/90 border border-emerald-200 rounded-3xl p-4 flex items-center justify-between gap-3">
-                <div>
-                  <span className="text-[11px] font-extrabold uppercase tracking-wider text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">
-                    現在の第1位候補
-                  </span>
-                  <p className="font-extrabold text-slate-900 text-base mt-1">
-                    {formatJapaneseDate(aggregated.rankings[0].date).full}{' '}
-                    {aggregated.rankings[0].start}〜{aggregated.rankings[0].end}
-                  </p>
-                  <p className="text-xs text-emerald-800 font-semibold mt-0.5">
-                    {currentEvent.expectedCount}人中 {aggregated.rankings[0].availableParticipants.length}人が参加可能
-                    {aggregated.rankings[0].unansweredCount > 0 &&
-                      `（未回答 ${aggregated.rankings[0].unansweredCount}人）`}
-                  </p>
-                </div>
-                <button
-                  onClick={() => setActiveScreen('results')}
-                  className="shrink-0 bg-emerald-600 text-white font-bold text-xs px-3.5 py-2.5 rounded-xl shadow-sm hover:bg-emerald-700 transition"
-                >
-                  集計詳細へ →
-                </button>
-              </div>
-            )}
-
-            {/* 6人の回答状況一覧カード */}
-            <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-sm space-y-3">
+            {/* 右カラム: メンバーの回答状況一覧 */}
+            <div className="lg:col-span-5 bg-white rounded-3xl p-5 sm:p-6 border border-slate-200 shadow-sm space-y-3">
               <div className="flex items-center justify-between">
                 <h2 className="font-extrabold text-slate-900 text-base flex items-center gap-2">
                   <Users className="w-5 h-5 text-emerald-600" />
-                  <span>メンバー6人の回答状況</span>
+                  <span>メンバーの回答状況</span>
                 </h2>
                 <button
                   onClick={() => setActiveScreen('members')}
@@ -1707,7 +1650,6 @@ useEffect(() => {
                             {idx + 1}
                           </span>
                           <span className="font-bold text-sm text-slate-900 truncate">{p.nickname}</span>
-                          <span className="text-[10px] font-mono text-slate-400">#{p.participantId.slice(-4)}</span>
                           <span className="text-[11px] font-bold bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full">
                             回答済み
                           </span>
@@ -1733,7 +1675,6 @@ useEffect(() => {
                   );
                 })}
 
-                {/* 未回答メンバー枠を視覚的に表示 */}
                 {Array.from({
                   length: Math.max(0, currentEvent.expectedCount - currentEvent.participants.length)
                 }).map((_, i) => {
@@ -1771,416 +1712,568 @@ useEffect(() => {
         )}
 
         {/* ====================================================
-            画面4: 空き時間入力画面（最重要・時間帯まとめ指定UI）
+            画面4: 空き時間入力画面（従来の時間帯入力 ＋ カレンダードラッグ入力）
         ==================================================== */}
         {activeScreen === 'input' && currentEvent && (
-          <div className="space-y-4">
+          <div className="space-y-5">
             {/* Step 1: ニックネームと暗証キー */}
-            <div className="bg-white rounded-3xl p-4 border border-slate-200 shadow-sm space-y-3">
-              <div className="flex items-center justify-between">
-                <h2 className="font-extrabold text-sm text-slate-900 flex items-center gap-1.5">
-                  <UserPlus className="w-4 h-4 text-emerald-600" />
-                  <span>{editingParticipantId ? '回答内容の修正' : 'あなたのニックネーム'}</span>
-                </h2>
-                <span className="text-[11px] text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-full font-semibold">
-                  自動一時保存オン
-                </span>
-              </div>
-
-              <div className="grid grid-cols-3 gap-2.5">
-                <div className="col-span-2">
-                  <label className="block text-[11px] font-bold text-slate-600 mb-1">
-                    ニックネーム（必須）
-                  </label>
-                  <input
-                    type="text"
-                    value={inputNickname}
-                    onChange={e => {
-                      setInputNickname(e.target.value);
-                      saveDraftToCloud(availabilityDraft, e.target.value, inputPinCode);
-                    }}
-                    placeholder="例：しょうた"
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 focus:border-emerald-500 font-bold text-sm outline-none"
-                  />
+            <div className="bg-white rounded-3xl p-4 sm:p-5 border border-slate-200 shadow-sm">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <UserPlus className="w-5 h-5 text-emerald-600" />
+                  <h2 className="font-extrabold text-base text-slate-900">
+                    {editingParticipantId ? '回答内容の修正' : 'あなたの情報を入力'}
+                  </h2>
+                  <span className="text-[11px] text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-full font-semibold">
+                    自動一時保存オン
+                  </span>
                 </div>
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-600 mb-1 flex items-center gap-1">
-                    <Lock className="w-3 h-3 text-slate-400" /> 編集用4桁
-                  </label>
-                  <input
-                    type="text"
-                    maxLength={4}
-                    value={inputPinCode}
-                    onChange={e => {
-                      setInputPinCode(e.target.value);
-                      saveDraftToCloud(availabilityDraft, inputNickname, e.target.value);
-                    }}
-                    placeholder="1234"
-                    className="w-full px-3 py-2.5 rounded-xl border border-slate-300 text-center font-mono font-bold text-sm outline-none"
-                  />
-                </div>
-              </div>
-            </div>
 
-            {/* Step 2: カレンダー日付選択（横スクロール不要のグリッドボタン） */}
-            <div className="bg-white rounded-3xl p-4 border border-slate-200 shadow-sm space-y-3">
-              <div className="flex items-center justify-between">
-                <h2 className="font-extrabold text-sm text-slate-900">
-                  1. 日付をタップして選ぶ（{selectedDateIndex + 1}/{currentEvent.candidateDates.length}日目）
-                </h2>
-                <span className="text-[11px] text-slate-500">
-                  入力済み: {Object.values(availabilityDraft).filter(d => d.status !== 'unanswered').length}/
-                  {currentEvent.candidateDates.length}日
-                </span>
-              </div>
-
-              <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
-                {currentEvent.candidateDates.map((d, idx) => {
-                  const formatted = formatJapaneseDate(d);
-                  const dState = availabilityDraft[d]?.status || 'unanswered';
-                  const rangeCount = availabilityDraft[d]?.ranges?.length || 0;
-                  const isSelected = idx === selectedDateIndex;
-
-                  return (
-                    <button
-                      type="button"
-                      key={d}
-                      onClick={() => {
-                        setSelectedDateIndex(idx);
-                        setRangeWarning(null);
+                <div className="grid grid-cols-3 gap-2.5 sm:w-96">
+                  <div className="col-span-2">
+                    <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                      ニックネーム（必須）
+                    </label>
+                    <input
+                      type="text"
+                      value={inputNickname}
+                      onChange={e => {
+                        setInputNickname(e.target.value);
+                        saveDraftToCloud(availabilityDraft, e.target.value, inputPinCode);
                       }}
-                      className={`p-2.5 rounded-2xl border text-left transition flex flex-col justify-between ${
-                        isSelected
-                          ? 'border-emerald-600 bg-emerald-600 text-white shadow-md scale-[1.02]'
-                          : dState === 'available'
-                          ? 'border-emerald-300 bg-emerald-50/70 text-slate-900'
-                          : dState === 'unavailable'
-                          ? 'border-slate-300 bg-slate-100 text-slate-600'
-                          : 'border-dashed border-amber-300 bg-amber-50/30 text-slate-700'
-                      }`}
-                    >
-                      <span className="text-xs font-extrabold">{formatted.short}</span>
-                      <div className="mt-1.5 flex items-center gap-1">
-                        {dState === 'available' ? (
-                          <span
-                            className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md ${
-                              isSelected ? 'bg-white/25 text-white' : 'bg-emerald-600 text-white'
-                            }`}
-                          >
-                            空き {rangeCount}件
-                          </span>
-                        ) : dState === 'unavailable' ? (
-                          <span
-                            className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md ${
-                              isSelected ? 'bg-white/25 text-white' : 'bg-slate-500 text-white'
-                            }`}
-                          >
-                            予定あり
-                          </span>
-                        ) : (
-                          <span
-                            className={`text-[10px] font-semibold ${
-                              isSelected ? 'text-emerald-100' : 'text-amber-700'
-                            }`}
-                          >
-                            未入力
-                          </span>
-                        )}
-                      </div>
-                    </button>
-                  );
-                })}
+                      placeholder="例：しょうた"
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 focus:border-emerald-500 font-bold text-sm outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-600 mb-1 flex items-center gap-1">
+                      <Lock className="w-3 h-3 text-slate-400" /> 編集用4桁
+                    </label>
+                    <input
+                      type="text"
+                      maxLength={4}
+                      value={inputPinCode}
+                      onChange={e => {
+                        setInputPinCode(e.target.value);
+                        saveDraftToCloud(availabilityDraft, inputNickname, e.target.value);
+                      }}
+                      placeholder="1234"
+                      className="w-full px-3 py-2.5 rounded-xl border border-slate-300 text-center font-mono font-bold text-sm outline-none"
+                    />
+                  </div>
+                </div>
               </div>
             </div>
 
-            {/* Step 3: 選択中の日の時間帯まとめ入力カード */}
-            {currentEditingDate && (
-              <div className="bg-white rounded-3xl p-5 border-2 border-emerald-500/80 shadow-md space-y-4">
-                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                  <div>
-                    <span className="text-xs font-bold text-emerald-700">選択中の日付</span>
-                    <h3 className="text-xl font-extrabold text-slate-900">
-                      {formatJapaneseDate(currentEditingDate).full} は何時から何時まで空いてる？
-                    </h3>
-                  </div>
-                </div>
-
-                {/* ワンタップ「終日空いている」「この日は空いていない」 */}
-                <div className="grid grid-cols-2 gap-2.5">
-                  <button
-                    type="button"
-                    onClick={handleSetAllDayAvailable}
-                    className={`py-3.5 px-3 rounded-2xl font-extrabold text-xs sm:text-sm border transition flex items-center justify-center gap-1.5 ${
-                      currentDayData.status === 'available' &&
-                      currentDayData.ranges.length === 1 &&
-                      currentDayData.ranges[0].start === currentEvent.dayStartTime &&
-                      currentDayData.ranges[0].end === currentEvent.dayEndTime
-                        ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
-                        : 'bg-emerald-50 text-emerald-900 border-emerald-200 hover:bg-emerald-100'
-                    }`}
-                  >
-                    <Sun className="w-4 h-4 shrink-0" />
-                    <span>終日空いている ({currentEvent.dayStartTime}〜{currentEvent.dayEndTime})</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={handleSetDayUnavailable}
-                    className={`py-3.5 px-3 rounded-2xl font-extrabold text-xs sm:text-sm border transition flex items-center justify-center gap-1.5 ${
-                      currentDayData.status === 'unavailable'
-                        ? 'bg-slate-800 text-white border-slate-800 shadow-sm'
-                        : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200'
-                    }`}
-                  >
-                    <XCircle className="w-4 h-4 shrink-0" />
-                    <span>この日は空いていない</span>
-                  </button>
-                </div>
-
-                {/* 大学生向けワンタップ時間帯プリセット */}
-                <div className="space-y-1.5">
-                  <p className="text-xs font-bold text-slate-600">
-                    よく使う時間帯をワンタップで追加（複数組み合わせOK）：
-                  </p>
-                  <div className="grid grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      onClick={() => handleAddTimeRange('09:00', '13:00')}
-                      className="py-2.5 px-3 rounded-xl bg-teal-50 hover:bg-teal-100 border border-teal-200 text-teal-900 font-bold text-xs flex items-center justify-between"
-                    >
-                      <span className="flex items-center gap-1">
-                        <Coffee className="w-3.5 h-3.5 text-teal-600" /> 午前
-                      </span>
-                      <span className="font-mono">09:00〜13:00 ＋</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => handleAddTimeRange('13:00', '18:00')}
-                      className="py-2.5 px-3 rounded-xl bg-teal-50 hover:bg-teal-100 border border-teal-200 text-teal-900 font-bold text-xs flex items-center justify-between"
-                    >
-                      <span className="flex items-center gap-1">
-                        <Sun className="w-3.5 h-3.5 text-amber-500" /> 昼〜夕方
-                      </span>
-                      <span className="font-mono">13:00〜18:00 ＋</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => handleAddTimeRange('18:00', '23:00')}
-                      className="py-2.5 px-3 rounded-xl bg-teal-50 hover:bg-teal-100 border border-teal-200 text-teal-900 font-bold text-xs flex items-center justify-between"
-                    >
-                      <span className="flex items-center gap-1">
-                        <Moon className="w-3.5 h-3.5 text-indigo-500" /> 18時以降
-                      </span>
-                      <span className="font-mono">18:00〜23:00 ＋</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => handleAddTimeRange('21:00', '23:00')}
-                      className="py-2.5 px-3 rounded-xl bg-teal-50 hover:bg-teal-100 border border-teal-200 text-teal-900 font-bold text-xs flex items-center justify-between"
-                    >
-                      <span className="flex items-center gap-1">
-                        <Sparkles className="w-3.5 h-3.5 text-purple-500" /> 21時以降
-                      </span>
-                      <span className="font-mono">21:00〜23:00 ＋</span>
-                    </button>
-                  </div>
-                </div>
-
-                {/* 自由な開始時刻〜終了時刻セレクター */}
-                <div className="bg-slate-50 rounded-2xl p-3.5 border border-slate-200 space-y-3">
-                  <p className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
-                    <Clock className="w-4 h-4 text-emerald-600" />
-                    <span>時間を自由に指定して追加（24時間表記）</span>
-                  </p>
-
-                  <div className="flex items-center gap-2">
-                    <div className="flex-1">
-                      <label className="text-[11px] font-semibold text-slate-500 block mb-1">開始時刻</label>
-                      <select
-                        value={pickerStart}
-                        onChange={e => setPickerStart(e.target.value)}
-                        className="w-full px-3 py-3 rounded-xl border border-slate-300 bg-white font-mono font-extrabold text-base text-slate-900"
-                      >
-                        {timeSelectOptions.slice(0, -1).map(t => (
-                          <option key={`start-${t}`} value={t}>
-                            {t}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <span className="font-extrabold text-slate-400 pt-5">〜</span>
-
-                    <div className="flex-1">
-                      <label className="text-[11px] font-semibold text-slate-500 block mb-1">終了時刻</label>
-                      <select
-                        value={pickerEnd}
-                        onChange={e => setPickerEnd(e.target.value)}
-                        className="w-full px-3 py-3 rounded-xl border border-slate-300 bg-white font-mono font-extrabold text-base text-slate-900"
-                      >
-                        {timeSelectOptions.slice(1).map(t => (
-                          <option key={`end-${t}`} value={t}>
-                            {t}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-
-                  {rangeWarning && (
-                    <p className="text-xs font-bold text-rose-600 bg-rose-50 px-3 py-2 rounded-xl flex items-center gap-1.5">
-                      <AlertCircle className="w-4 h-4 shrink-0" />
-                      <span>{rangeWarning}</span>
-                    </p>
-                  )}
-
-                  <button
-                    type="button"
-                    onClick={() => handleAddTimeRange(pickerStart, pickerEnd)}
-                    className="w-full py-3.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-sm shadow-sm transition flex items-center justify-center gap-1.5"
-                  >
-                    <Plus className="w-5 h-5" />
-                    <span>＋ 空いている時間を追加（{pickerStart}〜{pickerEnd}）</span>
-                  </button>
-                </div>
-
-                {/* 登録された空き時間カード一覧（修正・削除可能） */}
-                <div className="space-y-2">
+            {/* PCでは左右2カラム（左：日別のボタン＆プルダウン入力、右：複数日ドラッグカレンダー） */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+              {/* 左カラム（既存のボタン・プリセット・プルダウン入力一式を完全維持） */}
+              <div className="lg:col-span-6 space-y-4">
+                {/* 日付選択ボタン */}
+                <div className="bg-white rounded-3xl p-4 sm:p-5 border border-slate-200 shadow-sm space-y-3">
                   <div className="flex items-center justify-between">
-                    <h4 className="text-xs font-extrabold text-slate-700">
-                      {formatJapaneseDate(currentEditingDate).short} に登録済みの空き時間
-                    </h4>
-                    {currentDayData.status !== 'unanswered' && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setCopyTargetDates([]);
-                          setShowCopyModal(true);
-                        }}
-                        className="text-xs font-bold text-teal-700 hover:underline flex items-center gap-1"
-                      >
-                        <Copy className="w-3.5 h-3.5" />
-                        <span>他の日にもコピー</span>
-                      </button>
-                    )}
+                    <h2 className="font-extrabold text-sm text-slate-900">
+                      日付を選んで入力（{selectedDateIndex + 1}/{currentEvent.candidateDates.length}日目）
+                    </h2>
+                    <span className="text-[11px] text-slate-500">
+                      入力済み: {Object.values(availabilityDraft).filter(d => d.status !== 'unanswered').length}/
+                      {currentEvent.candidateDates.length}日
+                    </span>
                   </div>
 
-                  {currentDayData.status === 'unanswered' && (
-                    <div className="p-4 rounded-2xl border border-dashed border-amber-300 bg-amber-50/50 text-center">
-                      <p className="text-xs font-bold text-amber-900">
-                        まだこの日の空き時間が登録されていません
-                      </p>
-                      <p className="text-[11px] text-amber-700 mt-0.5">
-                        上のボタンから時間帯を追加するか、「この日は空いていない」を選んでください
-                      </p>
-                    </div>
-                  )}
+                  <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
+                    {currentEvent.candidateDates.map((d, idx) => {
+                      const formatted = formatJapaneseDate(d);
+                      const dState = availabilityDraft[d]?.status || 'unanswered';
+                      const rangeCount = availabilityDraft[d]?.ranges?.length || 0;
+                      const isSelected = idx === selectedDateIndex;
 
-                  {currentDayData.status === 'unavailable' && (
-                    <div className="p-4 rounded-2xl bg-slate-100 border border-slate-300 flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <XCircle className="w-5 h-5 text-slate-600" />
-                        <span className="font-bold text-sm text-slate-800">
-                          この日は空いていない（終日予定あり）
-                        </span>
+                      return (
+                        <button
+                          type="button"
+                          key={d}
+                          onClick={() => {
+                            setSelectedDateIndex(idx);
+                            setRangeWarning(null);
+                          }}
+                          className={`p-2.5 rounded-2xl border text-left transition flex flex-col justify-between ${
+                            isSelected
+                              ? 'border-emerald-600 bg-emerald-600 text-white shadow-md scale-[1.02]'
+                              : dState === 'available'
+                              ? 'border-emerald-300 bg-emerald-50/70 text-slate-900'
+                              : dState === 'unavailable'
+                              ? 'border-slate-300 bg-slate-100 text-slate-600'
+                              : 'border-dashed border-amber-300 bg-amber-50/30 text-slate-700'
+                          }`}
+                        >
+                          <span className="text-xs font-extrabold">{formatted.short}</span>
+                          <div className="mt-1.5 flex items-center gap-1">
+                            {dState === 'available' ? (
+                              <span
+                                className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md ${
+                                  isSelected ? 'bg-white/25 text-white' : 'bg-emerald-600 text-white'
+                                }`}
+                              >
+                                空き {rangeCount}件
+                              </span>
+                            ) : dState === 'unavailable' ? (
+                              <span
+                                className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md ${
+                                  isSelected ? 'bg-white/25 text-white' : 'bg-slate-500 text-white'
+                                }`}
+                              >
+                                予定あり
+                              </span>
+                            ) : (
+                              <span
+                                className={`text-[10px] font-semibold ${
+                                  isSelected ? 'text-emerald-100' : 'text-amber-700'
+                                }`}
+                              >
+                                未入力
+                              </span>
+                            )}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* 選択中の日の時間帯まとめ入力カード */}
+                {currentEditingDate && (
+                  <div className="bg-white rounded-3xl p-5 border-2 border-emerald-500/80 shadow-md space-y-4">
+                    <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                      <div>
+                        <span className="text-xs font-bold text-emerald-700">選択中の日付</span>
+                        <h3 className="text-lg sm:text-xl font-extrabold text-slate-900">
+                          {formatJapaneseDate(currentEditingDate).full} の空き時間
+                        </h3>
                       </div>
+                    </div>
+
+                    {/* ワンタップ「終日空いている」「この日は空いていない」 */}
+                    <div className="grid grid-cols-2 gap-2.5">
                       <button
                         type="button"
-                        onClick={() => {
-                          const nextAvail = {
-                            ...availabilityDraft,
-                            [currentEditingDate]: { date: currentEditingDate, status: 'unanswered' as DayStatus, ranges: [] }
-                          };
-                          setAvailabilityDraft(nextAvail);
-                          saveDraftToCloud(nextAvail);
-                        }}
-                        className="text-xs font-bold text-rose-600 hover:underline px-2 py-1"
+                        onClick={handleSetAllDayAvailable}
+                        className={`py-3.5 px-3 rounded-2xl font-extrabold text-xs sm:text-sm border transition flex items-center justify-center gap-1.5 ${
+                          currentDayData.status === 'available' &&
+                          currentDayData.ranges.length === 1 &&
+                          currentDayData.ranges[0].start === currentEvent.dayStartTime &&
+                          currentDayData.ranges[0].end === currentEvent.dayEndTime
+                            ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
+                            : 'bg-emerald-50 text-emerald-900 border-emerald-200 hover:bg-emerald-100'
+                        }`}
                       >
-                        解除
+                        <Sun className="w-4 h-4 shrink-0" />
+                        <span>終日空いている ({currentEvent.dayStartTime}〜{currentEvent.dayEndTime})</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={handleSetDayUnavailable}
+                        className={`py-3.5 px-3 rounded-2xl font-extrabold text-xs sm:text-sm border transition flex items-center justify-center gap-1.5 ${
+                          currentDayData.status === 'unavailable'
+                            ? 'bg-slate-800 text-white border-slate-800 shadow-sm'
+                            : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200'
+                        }`}
+                      >
+                        <XCircle className="w-4 h-4 shrink-0" />
+                        <span>この日は空いていない</span>
                       </button>
                     </div>
-                  )}
 
-                  {currentDayData.status === 'available' &&
-                    currentDayData.ranges.map((rng, idx) => (
-                      <div
-                        key={rng.id}
-                        className="p-3.5 rounded-2xl bg-emerald-50/90 border border-emerald-300 flex items-center justify-between gap-2"
-                      >
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="text-xs font-extrabold bg-emerald-600 text-white px-2 py-0.5 rounded-lg">
-                            空き {idx + 1}
+                    {/* よく使う時間帯プリセット */}
+                    <div className="space-y-1.5">
+                      <p className="text-xs font-bold text-slate-600">
+                        よく使う時間帯をワンタップで追加（複数組み合わせOK）：
+                      </p>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleAddTimeRange('09:00', '13:00')}
+                          className="py-2.5 px-3 rounded-xl bg-teal-50 hover:bg-teal-100 border border-teal-200 text-teal-900 font-bold text-xs flex items-center justify-between"
+                        >
+                          <span className="flex items-center gap-1">
+                            <Coffee className="w-3.5 h-3.5 text-teal-600" /> 午前
                           </span>
-                          {/* カード上で直接時刻変更が可能 */}
+                          <span className="font-mono">09:00〜13:00 ＋</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handleAddTimeRange('13:00', '18:00')}
+                          className="py-2.5 px-3 rounded-xl bg-teal-50 hover:bg-teal-100 border border-teal-200 text-teal-900 font-bold text-xs flex items-center justify-between"
+                        >
+                          <span className="flex items-center gap-1">
+                            <Sun className="w-3.5 h-3.5 text-amber-500" /> 昼〜夕方
+                          </span>
+                          <span className="font-mono">13:00〜18:00 ＋</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handleAddTimeRange('18:00', '23:00')}
+                          className="py-2.5 px-3 rounded-xl bg-teal-50 hover:bg-teal-100 border border-teal-200 text-teal-900 font-bold text-xs flex items-center justify-between"
+                        >
+                          <span className="flex items-center gap-1">
+                            <Moon className="w-3.5 h-3.5 text-indigo-500" /> 18時以降
+                          </span>
+                          <span className="font-mono">18:00〜23:00 ＋</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handleAddTimeRange('21:00', '23:00')}
+                          className="py-2.5 px-3 rounded-xl bg-teal-50 hover:bg-teal-100 border border-teal-200 text-teal-900 font-bold text-xs flex items-center justify-between"
+                        >
+                          <span className="flex items-center gap-1">
+                            <Sparkles className="w-3.5 h-3.5 text-purple-500" /> 21時以降
+                          </span>
+                          <span className="font-mono">21:00〜23:00 ＋</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* 自由な開始時刻〜終了時刻セレクター */}
+                    <div className="bg-slate-50 rounded-2xl p-3.5 border border-slate-200 space-y-3">
+                      <p className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                        <Clock className="w-4 h-4 text-emerald-600" />
+                        <span>時間を自由に指定して追加（24時間表記）</span>
+                      </p>
+
+                      <div className="flex items-center gap-2">
+                        <div className="flex-1">
+                          <label className="text-[11px] font-semibold text-slate-500 block mb-1">開始時刻</label>
                           <select
-                            value={rng.start}
-                            onChange={e => handleUpdateTimeRange(rng.id, 'start', e.target.value)}
-                            className="bg-white border border-emerald-300 rounded-lg px-2 py-1.5 font-mono font-extrabold text-sm text-slate-900"
+                            value={pickerStart}
+                            onChange={e => setPickerStart(e.target.value)}
+                            className="w-full px-3 py-3 rounded-xl border border-slate-300 bg-white font-mono font-extrabold text-base text-slate-900"
                           >
                             {timeSelectOptions.slice(0, -1).map(t => (
-                              <option key={t} value={t}>
-                                {t}
-                              </option>
-                            ))}
-                          </select>
-                          <span className="font-bold text-emerald-800">〜</span>
-                          <select
-                            value={rng.end}
-                            onChange={e => handleUpdateTimeRange(rng.id, 'end', e.target.value)}
-                            className="bg-white border border-emerald-300 rounded-lg px-2 py-1.5 font-mono font-extrabold text-sm text-slate-900"
-                          >
-                            {timeSelectOptions.slice(1).map(t => (
-                              <option key={t} value={t}>
+                              <option key={`start-${t}`} value={t}>
                                 {t}
                               </option>
                             ))}
                           </select>
                         </div>
 
+                        <span className="font-extrabold text-slate-400 pt-5">〜</span>
+
+                        <div className="flex-1">
+                          <label className="text-[11px] font-semibold text-slate-500 block mb-1">終了時刻</label>
+                          <select
+                            value={pickerEnd}
+                            onChange={e => setPickerEnd(e.target.value)}
+                            className="w-full px-3 py-3 rounded-xl border border-slate-300 bg-white font-mono font-extrabold text-base text-slate-900"
+                          >
+                            {timeSelectOptions.slice(1).map(t => (
+                              <option key={`end-${t}`} value={t}>
+                                {t}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+
+                      {rangeWarning && (
+                        <p className="text-xs font-bold text-rose-600 bg-rose-50 px-3 py-2 rounded-xl flex items-center gap-1.5">
+                          <AlertCircle className="w-4 h-4 shrink-0" />
+                          <span>{rangeWarning}</span>
+                        </p>
+                      )}
+
+                      <button
+                        type="button"
+                        onClick={() => handleAddTimeRange(pickerStart, pickerEnd)}
+                        className="w-full py-3.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-sm shadow-sm transition flex items-center justify-center gap-1.5"
+                      >
+                        <Plus className="w-5 h-5" />
+                        <span>＋ 空いている時間を追加（{pickerStart}〜{pickerEnd}）</span>
+                      </button>
+                    </div>
+
+                    {/* 登録された空き時間カード一覧（修正・削除可能） */}
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <h4 className="text-xs font-extrabold text-slate-700">
+                          {formatJapaneseDate(currentEditingDate).short} に登録済みの空き時間
+                        </h4>
+                        {currentDayData.status !== 'unanswered' && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setCopyTargetDates([]);
+                              setShowCopyModal(true);
+                            }}
+                            className="text-xs font-bold text-teal-700 hover:underline flex items-center gap-1"
+                          >
+                            <Copy className="w-3.5 h-3.5" />
+                            <span>他の日にもコピー</span>
+                          </button>
+                        )}
+                      </div>
+
+                      {currentDayData.status === 'unanswered' && (
+                        <div className="p-4 rounded-2xl border border-dashed border-amber-300 bg-amber-50/50 text-center">
+                          <p className="text-xs font-bold text-amber-900">
+                            まだこの日の空き時間が登録されていません
+                          </p>
+                          <p className="text-[11px] text-amber-700 mt-0.5">
+                            上のボタン・プルダウン、またはカレンダーのドラッグから追加してください
+                          </p>
+                        </div>
+                      )}
+
+                      {currentDayData.status === 'unavailable' && (
+                        <div className="p-4 rounded-2xl bg-slate-100 border border-slate-300 flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <XCircle className="w-5 h-5 text-slate-600" />
+                            <span className="font-bold text-sm text-slate-800">
+                              この日は空いていない（終日予定あり）
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const nextAvail = {
+                                ...availabilityDraft,
+                                [currentEditingDate]: { date: currentEditingDate, status: 'unanswered' as DayStatus, ranges: [] }
+                              };
+                              setAvailabilityDraft(nextAvail);
+                              saveDraftToCloud(nextAvail);
+                            }}
+                            className="text-xs font-bold text-rose-600 hover:underline px-2 py-1"
+                          >
+                            解除
+                          </button>
+                        </div>
+                      )}
+
+                      {currentDayData.status === 'available' &&
+                        currentDayData.ranges.map((rng, idx) => (
+                          <div
+                            key={rng.id}
+                            className="p-3.5 rounded-2xl bg-emerald-50/90 border border-emerald-300 flex items-center justify-between gap-2"
+                          >
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-xs font-extrabold bg-emerald-600 text-white px-2 py-0.5 rounded-lg">
+                                空き {idx + 1}
+                              </span>
+                              <select
+                                value={rng.start}
+                                onChange={e => handleUpdateTimeRange(rng.id, 'start', e.target.value)}
+                                className="bg-white border border-emerald-300 rounded-lg px-2 py-1.5 font-mono font-extrabold text-sm text-slate-900"
+                              >
+                                {timeSelectOptions.slice(0, -1).map(t => (
+                                  <option key={t} value={t}>
+                                    {t}
+                                  </option>
+                                ))}
+                              </select>
+                              <span className="font-bold text-emerald-800">〜</span>
+                              <select
+                                value={rng.end}
+                                onChange={e => handleUpdateTimeRange(rng.id, 'end', e.target.value)}
+                                className="bg-white border border-emerald-300 rounded-lg px-2 py-1.5 font-mono font-extrabold text-sm text-slate-900"
+                              >
+                                {timeSelectOptions.slice(1).map(t => (
+                                  <option key={t} value={t}>
+                                    {t}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveTimeRange(rng.id)}
+                              className="p-2 rounded-xl bg-white text-rose-600 hover:bg-rose-50 border border-rose-200 transition"
+                              title="この時間帯を削除"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        ))}
+                    </div>
+
+                    {/* 前後の日付移動ボタン */}
+                    <div className="pt-2 flex items-center justify-between gap-2 border-t border-slate-100">
+                      <button
+                        type="button"
+                        disabled={selectedDateIndex === 0}
+                        onClick={() => setSelectedDateIndex(i => Math.max(0, i - 1))}
+                        className="py-3 px-4 rounded-xl font-bold text-xs bg-slate-100 text-slate-700 disabled:opacity-40 flex items-center gap-1"
+                      >
+                        <ChevronLeft className="w-4 h-4" /> 前の日へ
+                      </button>
+
+                      {selectedDateIndex < currentEvent.candidateDates.length - 1 ? (
                         <button
                           type="button"
-                          onClick={() => handleRemoveTimeRange(rng.id)}
-                          className="p-2 rounded-xl bg-white text-rose-600 hover:bg-rose-50 border border-rose-200 transition"
-                          title="この時間帯を削除"
+                          onClick={() => setSelectedDateIndex(i => Math.min(currentEvent.candidateDates.length - 1, i + 1))}
+                          className="py-3 px-5 rounded-xl font-extrabold text-xs bg-slate-900 text-white hover:bg-slate-800 flex items-center gap-1.5"
                         >
-                          <Trash2 className="w-4 h-4" />
+                          <span>次の日付へ（{formatJapaneseDate(currentEvent.candidateDates[selectedDateIndex + 1]).short}）</span>
+                          <ArrowRight className="w-4 h-4" />
                         </button>
-                      </div>
-                    ))}
+                      ) : (
+                        <span className="text-xs font-bold text-emerald-700">最後の候補日です✨</span>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* 右カラム: ドラッグで空いている時間を追加できるカレンダーグリッド */}
+              <div className="lg:col-span-6 bg-white rounded-3xl p-4 sm:p-5 border border-slate-200 shadow-sm space-y-3">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <div>
+                    <h3 className="font-extrabold text-sm sm:text-base text-slate-900 flex items-center gap-1.5">
+                      <Calendar className="w-4 h-4 text-emerald-600" />
+                      <span>ドラッグで空き時間を追加・一覧確認</span>
+                    </h3>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      空いている時間帯を縦にドラッグ（なぞる）すると、既存の入力を消さずにそのまま追加・結合できます。
+                    </p>
+                  </div>
                 </div>
 
-                {/* 前後の日付移動ボタン */}
-                <div className="pt-2 flex items-center justify-between gap-2 border-t border-slate-100">
-                  <button
-                    type="button"
-                    disabled={selectedDateIndex === 0}
-                    onClick={() => setSelectedDateIndex(i => Math.max(0, i - 1))}
-                    className="py-3 px-4 rounded-xl font-bold text-xs bg-slate-100 text-slate-700 disabled:opacity-40 flex items-center gap-1"
-                  >
-                    <ChevronLeft className="w-4 h-4" /> 前の日へ
-                  </button>
-
-                  {selectedDateIndex < currentEvent.candidateDates.length - 1 ? (
-                    <button
-                      type="button"
-                      onClick={() => setSelectedDateIndex(i => Math.min(currentEvent.candidateDates.length - 1, i + 1))}
-                      className="py-3 px-5 rounded-xl font-extrabold text-xs bg-slate-900 text-white hover:bg-slate-800 flex items-center gap-1.5"
+                {/* カレンダーグリッド本体 */}
+                <div className="overflow-x-auto border border-slate-200 rounded-2xl bg-slate-50/40 select-none">
+                  <div className="min-w-[360px]">
+                    {/* 日付ヘッダー行 */}
+                    <div
+                      className="grid border-b border-slate-200 bg-white sticky top-0 z-10"
+                      style={{
+                        gridTemplateColumns: `56px repeat(${currentEvent.candidateDates.length}, minmax(64px, 1fr))`
+                      }}
                     >
-                      <span>次の日付へ（{formatJapaneseDate(currentEvent.candidateDates[selectedDateIndex + 1]).short}）</span>
-                      <ArrowRight className="w-4 h-4" />
-                    </button>
-                  ) : (
-                    <span className="text-xs font-bold text-emerald-700">すべての候補日の最後です✨</span>
-                  )}
+                      <div className="p-2 text-[10px] font-bold text-slate-400 flex items-center justify-center border-r border-slate-100">
+                        時刻
+                      </div>
+                      {currentEvent.candidateDates.map((d, idx) => {
+                        const fmt = formatJapaneseDate(d);
+                        const isSelectedDay = idx === selectedDateIndex;
+                        const dayState = availabilityDraft[d]?.status || 'unanswered';
+                        return (
+                          <button
+                            type="button"
+                            key={`header-${d}`}
+                            onClick={() => setSelectedDateIndex(idx)}
+                            className={`p-2 text-center border-r border-slate-100 last:border-r-0 transition ${
+                              isSelectedDay ? 'bg-emerald-50 font-extrabold text-emerald-800' : 'hover:bg-slate-50'
+                            }`}
+                          >
+                            <div className="text-xs font-extrabold">{fmt.short}</div>
+                            <div className="mt-0.5">
+                              {dayState === 'unavailable' ? (
+                                <span className="text-[10px] font-bold text-slate-500">予定あり</span>
+                              ) : dayState === 'available' ? (
+                                <span className="text-[10px] font-bold text-emerald-600">
+                                  空き{availabilityDraft[d]?.ranges.length}件
+                                </span>
+                              ) : (
+                                <span className="text-[10px] text-amber-600">未入力</span>
+                              )}
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {/* 30分単位のタイムスロット行 */}
+                    <div className="divide-y divide-slate-100">
+                      {gridTimeSlots.map(slotMins => {
+                        const timeLabel = minutesToTime(slotMins);
+                        const isHourMark = slotMins % 60 === 0;
+
+                        return (
+                          <div
+                            key={`row-${slotMins}`}
+                            className="grid"
+                            style={{
+                              gridTemplateColumns: `56px repeat(${currentEvent.candidateDates.length}, minmax(64px, 1fr))`
+                            }}
+                          >
+                            {/* 左端の時刻ラベル */}
+                            <div
+                              className={`px-1.5 h-7 flex items-center justify-end pr-2 text-[11px] font-mono border-r border-slate-200 ${
+                                isHourMark ? 'font-bold text-slate-700 bg-white' : 'text-slate-400 bg-slate-50/60'
+                              }`}
+                            >
+                              {isHourMark ? timeLabel : ''}
+                            </div>
+
+                            {/* 各日付のセル */}
+                            {currentEvent.candidateDates.map((d, dIdx) => {
+                              const dayAvail = availabilityDraft[d];
+                              const matchingRange =
+                                dayAvail?.status === 'available'
+                                  ? dayAvail.ranges.find(
+                                      r => timeToMinutes(r.start) <= slotMins && timeToMinutes(r.end) >= slotMins + 30
+                                    )
+                                  : undefined;
+                              const isRangeStart =
+                                matchingRange && timeToMinutes(matchingRange.start) === slotMins;
+
+                              const isDraggingThisCell =
+                                dragState &&
+                                dragState.date === d &&
+                                slotMins >= Math.min(dragState.startMins, dragState.currentMins) &&
+                                slotMins <= Math.max(dragState.startMins, dragState.currentMins);
+
+                              return (
+                                <div
+                                  key={`cell-${d}-${slotMins}`}
+                                  onMouseDown={e => {
+                                    e.preventDefault();
+                                    setSelectedDateIndex(dIdx);
+                                    setDragState({
+                                      date: d,
+                                      startMins: slotMins,
+                                      currentMins: slotMins
+                                    });
+                                  }}
+                                  onMouseEnter={() => {
+                                    if (dragState) {
+                                      setDragState(prev => (prev ? { ...prev, currentMins: slotMins } : null));
+                                    }
+                                  }}
+                                  className={`h-7 border-r border-slate-100 last:border-r-0 relative cursor-pointer transition-colors ${
+                                    isDraggingThisCell
+                                      ? 'bg-emerald-400/80'
+                                      : matchingRange
+                                      ? 'bg-emerald-500/90 hover:bg-emerald-600'
+                                      : dayAvail?.status === 'unavailable'
+                                      ? 'bg-slate-200/60'
+                                      : isHourMark
+                                      ? 'bg-white hover:bg-emerald-50'
+                                      : 'bg-slate-50/40 hover:bg-emerald-50'
+                                  }`}
+                                >
+                                  {isRangeStart && matchingRange && (
+                                    <div className="px-1.5 py-0.5 flex items-center justify-between text-[10px] font-mono font-bold text-white leading-none">
+                                      <span className="truncate">
+                                        {matchingRange.start}〜{matchingRange.end}
+                                      </span>
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
                 </div>
               </div>
-            )}
+            </div>
 
             {/* 送信前の確認・保存ボタン */}
-            <div className="bg-white rounded-3xl p-4 border border-slate-200 shadow-sm space-y-2.5">
+            <div className="bg-white rounded-3xl p-4 sm:p-5 border border-slate-200 shadow-sm space-y-2.5">
               <button
                 type="button"
                 onClick={handleOpenSubmitConfirmation}
@@ -2207,274 +2300,271 @@ useEffect(() => {
             画面5: 集計画面（おすすめ候補ランキング＆時間帯別重なり）
         ==================================================== */}
         {activeScreen === 'results' && currentEvent && aggregated && (
-          <div className="space-y-4">
+          <div className="space-y-5">
             {/* ヘッダー・必要時間フィルター */}
-            <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-sm space-y-3">
-              <div className="flex items-center justify-between flex-wrap gap-2">
-                <div>
-                  <h1 className="text-lg font-extrabold text-slate-900 flex items-center gap-2">
-                    <BarChart3 className="w-5 h-5 text-emerald-600" />
-                    <span>みんなの空き時間 集計結果</span>
-                  </h1>
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    {currentEvent.expectedCount}人中 {currentEvent.participants.length}人が回答済み（未回答{' '}
-                    {Math.max(0, currentEvent.expectedCount - currentEvent.participants.length)}人）
-                  </p>
+            <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <h1 className="text-lg sm:text-xl font-extrabold text-slate-900 flex items-center gap-2">
+                  <BarChart3 className="w-5 h-5 text-emerald-600" />
+                  <span>みんなの空き時間 集計結果</span>
+                </h1>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  {currentEvent.expectedCount}人中 {currentEvent.participants.length}人が回答済み（未回答{' '}
+                  {Math.max(0, currentEvent.expectedCount - currentEvent.participants.length)}人）
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="flex items-center bg-slate-50 p-1.5 rounded-2xl border border-slate-200/70">
+                  <span className="text-xs font-bold text-slate-700 px-2">最低時間：</span>
+                  <div className="flex gap-1">
+                    {[
+                      { label: '30分〜', mins: 30 },
+                      { label: '1時間〜', mins: 60 },
+                      { label: '2時間〜', mins: 120 },
+                      { label: '3時間〜', mins: 180 }
+                    ].map(opt => (
+                      <button
+                        key={opt.mins}
+                        onClick={() => setMinDurationFilter(opt.mins)}
+                        className={`px-2.5 py-1.5 rounded-xl text-xs font-bold transition ${
+                          minDurationFilter === opt.mins
+                            ? 'bg-emerald-600 text-white shadow-sm'
+                            : 'bg-white text-slate-600 border border-slate-200'
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
 
                 <button
                   onClick={() => startNewParticipantInput(currentEvent)}
-                  className="text-xs font-bold bg-emerald-600 text-white px-3.5 py-2 rounded-xl shadow-sm hover:bg-emerald-700 transition"
+                  className="text-xs font-bold bg-emerald-600 text-white px-4 py-2.5 rounded-xl shadow-sm hover:bg-emerald-700 transition"
                 >
                   ＋ 回答を追加
                 </button>
               </div>
-
-              {/* 最低連続時間の切り替え */}
-              <div className="flex items-center justify-between bg-slate-50 p-2.5 rounded-2xl border border-slate-200/70">
-                <span className="text-xs font-bold text-slate-700 pl-1">集まりたい最低時間：</span>
-                <div className="flex gap-1">
-                  {[
-                    { label: '30分〜', mins: 30 },
-                    { label: '1時間〜', mins: 60 },
-                    { label: '2時間〜', mins: 120 },
-                    { label: '3時間〜', mins: 180 }
-                  ].map(opt => (
-                    <button
-                      key={opt.mins}
-                      onClick={() => setMinDurationFilter(opt.mins)}
-                      className={`px-2.5 py-1.5 rounded-xl text-xs font-bold transition ${
-                        minDurationFilter === opt.mins
-                          ? 'bg-emerald-600 text-white shadow-sm'
-                          : 'bg-white text-slate-600 border border-slate-200'
-                      }`}
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
             </div>
 
-            {/* 全員が参加できる日時がある場合の特別ハイライトバナー */}
+            {/* 全員が参加できる日時がある場合のハイライトバナー */}
             {aggregated.rankings.length > 0 &&
               aggregated.rankings[0].availableParticipants.length >= currentEvent.participants.length &&
               currentEvent.participants.length > 0 && (
-                <div className="bg-gradient-to-br from-emerald-600 to-teal-700 rounded-3xl p-5 text-white shadow-md">
+                <div className="bg-gradient-to-br from-emerald-600 to-teal-700 rounded-3xl p-5 sm:p-6 text-white shadow-md">
                   <div className="inline-flex items-center gap-1.5 bg-white/20 px-3 py-1 rounded-full text-xs font-extrabold mb-2">
                     <Sparkles className="w-4 h-4 text-amber-300" />
                     <span>
-                      {aggregated.rankings[0].availableParticipants.length === currentEvent.expectedCount
-                        ? `6人全員が集まれる日時が見つかりました！`
+                      {aggregated.rankings[0].availableParticipants.length >= currentEvent.expectedCount
+                        ? `全員が集まれる日時が見つかりました！`
                         : `回答済み${currentEvent.participants.length}人全員が集まれる日時！`}
                     </span>
                   </div>
-                  <h2 className="text-xl font-extrabold">
+                  <h2 className="text-xl sm:text-2xl font-extrabold">
                     {formatJapaneseDate(aggregated.rankings[0].date).full}{' '}
                     {aggregated.rankings[0].start}〜{aggregated.rankings[0].end}
                   </h2>
-                  <p className="text-xs text-emerald-100 mt-1">
+                  <p className="text-xs sm:text-sm text-emerald-100 mt-1">
                     連続 {aggregated.rankings[0].durationMinutes / 60}時間 集まれます ・ 参加可能:{' '}
                     {aggregated.rankings[0].availableParticipants.map(p => p.nickname).join('、')}
                   </p>
                 </div>
               )}
 
-            {/* おすすめ候補日時ランキング */}
-            <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-sm space-y-3.5">
-              <h2 className="font-extrabold text-base text-slate-900">
-                おすすめ候補日時ランキング
-              </h2>
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+              {/* 左カラム: おすすめ候補日時ランキング */}
+              <div className="lg:col-span-7 bg-white rounded-3xl p-5 border border-slate-200 shadow-sm space-y-3.5">
+                <h2 className="font-extrabold text-base text-slate-900">
+                  おすすめ候補日時ランキング
+                </h2>
 
-              {aggregated.rankings.length === 0 ? (
-                <div className="text-center py-8 bg-slate-50 rounded-2xl border border-dashed border-slate-200 px-4">
-                  <p className="text-sm font-bold text-slate-700">
-                    条件に合う連続時間帯がまだありません
-                  </p>
-                  <p className="text-xs text-slate-500 mt-1">
-                    集まりたい最低時間を「30分〜」に下げるか、メンバーの空き時間を追加してください。
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {aggregated.rankings.slice(0, 8).map((cand, index) => {
-                    const rank = index + 1;
-                    const totalExpected = currentEvent.expectedCount;
-                    const availCount = cand.availableParticipants.length;
-                    const ratioPercent = Math.round((availCount / totalExpected) * 100);
-                    const isAllExpectedFree = availCount >= totalExpected;
+                {aggregated.rankings.length === 0 ? (
+                  <div className="text-center py-8 bg-slate-50 rounded-2xl border border-dashed border-slate-200 px-4">
+                    <p className="text-sm font-bold text-slate-700">
+                      条件に合う連続時間帯がまだありません
+                    </p>
+                    <p className="text-xs text-slate-500 mt-1">
+                      最低時間を「30分〜」に下げるか、メンバーの空き時間を追加してください。
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {aggregated.rankings.slice(0, 8).map((cand, index) => {
+                      const rank = index + 1;
+                      const totalExpected = currentEvent.expectedCount;
+                      const availCount = cand.availableParticipants.length;
+                      const ratioPercent = Math.round((availCount / totalExpected) * 100);
+                      const isAllExpectedFree = availCount >= totalExpected;
 
-                    return (
-                      <div
-                        key={cand.id}
-                        className={`p-4 rounded-2xl border transition ${
-                          rank === 1
-                            ? 'border-2 border-emerald-500 bg-emerald-50/40 shadow-sm'
-                            : 'border-slate-200 bg-white'
-                        }`}
-                      >
-                        <div className="flex items-start justify-between gap-2 mb-2">
-                          <div className="flex items-center gap-2">
+                      return (
+                        <div
+                          key={cand.id}
+                          className={`p-4 rounded-2xl border transition ${
+                            rank === 1
+                              ? 'border-2 border-emerald-500 bg-emerald-50/40 shadow-sm'
+                              : 'border-slate-200 bg-white'
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-2 mb-2">
+                            <div className="flex items-center gap-2">
+                              <span
+                                className={`px-2.5 py-1 rounded-xl font-extrabold text-xs ${
+                                  rank === 1
+                                    ? 'bg-emerald-600 text-white'
+                                    : rank === 2
+                                    ? 'bg-teal-600 text-white'
+                                    : rank === 3
+                                    ? 'bg-cyan-700 text-white'
+                                    : 'bg-slate-200 text-slate-700'
+                                }`}
+                              >
+                                {rank}位
+                              </span>
+                              <div>
+                                <span className="font-extrabold text-base text-slate-900">
+                                  {formatJapaneseDate(cand.date).full} {cand.start}〜{cand.end}
+                                </span>
+                                <span className="ml-2 text-xs font-bold text-slate-500">
+                                  （{cand.durationMinutes >= 60 ? `${cand.durationMinutes / 60}時間` : '30分'}）
+                                </span>
+                              </div>
+                            </div>
+
                             <span
-                              className={`px-2.5 py-1 rounded-xl font-extrabold text-xs ${
-                                rank === 1
+                              className={`shrink-0 text-xs font-extrabold px-2.5 py-1 rounded-full ${
+                                isAllExpectedFree
                                   ? 'bg-emerald-600 text-white'
-                                  : rank === 2
-                                  ? 'bg-teal-600 text-white'
-                                  : rank === 3
-                                  ? 'bg-cyan-700 text-white'
-                                  : 'bg-slate-200 text-slate-700'
+                                  : 'bg-emerald-100 text-emerald-900'
                               }`}
                             >
-                              {rank}位
+                              {totalExpected}人中 {availCount}人 ({ratioPercent}%)
                             </span>
-                            <div>
-                              <span className="font-extrabold text-base text-slate-900">
-                                {formatJapaneseDate(cand.date).full} {cand.start}〜{cand.end}
-                              </span>
-                              <span className="ml-2 text-xs font-bold text-slate-500">
-                                （{cand.durationMinutes >= 60 ? `${cand.durationMinutes / 60}時間` : '30分'}）
-                              </span>
-                            </div>
                           </div>
 
-                          <span
-                            className={`shrink-0 text-xs font-extrabold px-2.5 py-1 rounded-full ${
-                              isAllExpectedFree
-                                ? 'bg-emerald-600 text-white'
-                                : 'bg-emerald-100 text-emerald-900'
-                            }`}
-                          >
-                            {totalExpected}人中 {availCount}人 ({ratioPercent}%)
-                          </span>
-                        </div>
-
-                        {/* 割合プログレスバー */}
-                        <div className="w-full h-2 bg-slate-200 rounded-full overflow-hidden mb-3">
-                          <div
-                            className="h-full bg-emerald-500"
-                            style={{ width: `${Math.min(100, ratioPercent)}%` }}
-                          />
-                        </div>
-
-                        {/* 参加可能 / 参加不可 / 未回答の内訳 */}
-                        <div className="space-y-1.5 text-xs">
-                          <div className="flex items-start gap-2">
-                            <span className="font-bold text-emerald-700 shrink-0 w-16">⭕ 参加可能:</span>
-                            <div className="flex flex-wrap gap-1">
-                              {cand.availableParticipants.map(p => (
-                                <span
-                                  key={p.participantId}
-                                  className="bg-emerald-100 text-emerald-900 font-bold px-2 py-0.5 rounded-md"
-                                >
-                                  {p.nickname}
-                                </span>
-                              ))}
-                            </div>
+                          <div className="w-full h-2 bg-slate-200 rounded-full overflow-hidden mb-3">
+                            <div
+                              className="h-full bg-emerald-500"
+                              style={{ width: `${Math.min(100, ratioPercent)}%` }}
+                            />
                           </div>
 
-                          {cand.unavailableParticipants.length > 0 && (
+                          <div className="space-y-1.5 text-xs">
                             <div className="flex items-start gap-2">
-                              <span className="font-bold text-rose-600 shrink-0 w-16">✖ 参加不可:</span>
+                              <span className="font-bold text-emerald-700 shrink-0 w-16">⭕ 参加可能:</span>
                               <div className="flex flex-wrap gap-1">
-                                {cand.unavailableParticipants.map(p => (
+                                {cand.availableParticipants.map(p => (
                                   <span
                                     key={p.participantId}
-                                    className="bg-rose-50 text-rose-800 border border-rose-200 font-semibold px-2 py-0.5 rounded-md"
+                                    className="bg-emerald-100 text-emerald-900 font-bold px-2 py-0.5 rounded-md"
                                   >
                                     {p.nickname}
                                   </span>
                                 ))}
                               </div>
                             </div>
-                          )}
 
-                          {cand.unansweredCount > 0 && (
-                            <div className="flex items-center gap-2">
-                              <span className="font-bold text-amber-700 shrink-0 w-16">⏳ 未回答:</span>
-                              <span className="bg-amber-50 border border-dashed border-amber-300 text-amber-900 font-semibold px-2 py-0.5 rounded-md">
-                                {cand.unansweredCount}人（未回答のため参加可否未定）
-                              </span>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
+                            {cand.unavailableParticipants.length > 0 && (
+                              <div className="flex items-start gap-2">
+                                <span className="font-bold text-rose-600 shrink-0 w-16">✖ 参加不可:</span>
+                                <div className="flex flex-wrap gap-1">
+                                  {cand.unavailableParticipants.map(p => (
+                                    <span
+                                      key={p.participantId}
+                                      className="bg-rose-50 text-rose-800 border border-rose-200 font-semibold px-2 py-0.5 rounded-md"
+                                    >
+                                      {p.nickname}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
 
-            {/* 日付ごとの時間帯重なりヒートマップ（縦画面最適化・横スクロールなし） */}
-            <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-sm space-y-3.5">
-              <h2 className="font-extrabold text-base text-slate-900">
-                日付ごとの空き時間の重なり（視覚比較）
-              </h2>
-
-              {/* 日付切り替えボタン */}
-              <div className="grid grid-cols-3 sm:grid-cols-5 gap-1.5">
-                {currentEvent.candidateDates.map(d => {
-                  const active = (selectedTimelineDate || currentEvent.candidateDates[0]) === d;
-                  return (
-                    <button
-                      key={d}
-                      onClick={() => setSelectedTimelineDate(d)}
-                      className={`py-2 px-2 rounded-xl font-bold text-xs transition ${
-                        active
-                          ? 'bg-slate-900 text-white shadow-sm'
-                          : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                      }`}
-                    >
-                      {formatJapaneseDate(d).short}
-                    </button>
-                  );
-                })}
-              </div>
-
-              {/* 1時間単位（または30分単位）の縦並びバー */}
-              {selectedTimelineDate && aggregated.dailyTimeline[selectedTimelineDate] && (
-                <div className="space-y-1.5 pt-1">
-                  {aggregated.dailyTimeline[selectedTimelineDate]
-                    .filter((_, idx) => idx % 2 === 0) // スマホで見やすいよう1時間単位で代表表示しつつ30分単位の人数も反映
-                    .map(slot => {
-                      const count = slot.available.length;
-                      const maxExpected = currentEvent.expectedCount;
-                      const pct = Math.min(100, Math.round((count / maxExpected) * 100));
-                      return (
-                        <div
-                          key={slot.time}
-                          className="flex items-center gap-2.5 text-xs py-1 px-2 rounded-xl hover:bg-slate-50"
-                        >
-                          <span className="font-mono font-bold text-slate-600 w-12 shrink-0">
-                            {slot.time}
-                          </span>
-                          <div className="flex-1 bg-slate-100 h-6 rounded-lg overflow-hidden relative flex items-center">
-                            <div
-                              className={`h-full transition-all ${
-                                count === maxExpected
-                                  ? 'bg-emerald-600'
-                                  : count >= Math.ceil(maxExpected * 0.7)
-                                  ? 'bg-emerald-500'
-                                  : count >= Math.ceil(maxExpected * 0.4)
-                                  ? 'bg-teal-400'
-                                  : count > 0
-                                  ? 'bg-cyan-300'
-                                  : 'bg-transparent'
-                              }`}
-                              style={{ width: `${pct}%` }}
-                            />
-                            <span className="absolute left-2.5 text-[11px] font-bold text-slate-800 drop-shadow-sm">
-                              {count > 0 ? slot.available.map(p => p.nickname).join(', ') : '空きなし'}
-                            </span>
+                            {cand.unansweredCount > 0 && (
+                              <div className="flex items-center gap-2">
+                                <span className="font-bold text-amber-700 shrink-0 w-16">⏳ 未回答:</span>
+                                <span className="bg-amber-50 border border-dashed border-amber-300 text-amber-900 font-semibold px-2 py-0.5 rounded-md">
+                                  {cand.unansweredCount}人（未回答のため参加可否未定）
+                                </span>
+                              </div>
+                            )}
                           </div>
-                          <span className="w-12 text-right font-extrabold text-slate-800 shrink-0">
-                            {count}/{maxExpected}人
-                          </span>
                         </div>
                       );
                     })}
+                  </div>
+                )}
+              </div>
+
+              {/* 右カラム: 日付ごとの時間帯重なりヒートマップ */}
+              <div className="lg:col-span-5 bg-white rounded-3xl p-5 border border-slate-200 shadow-sm space-y-3.5">
+                <h2 className="font-extrabold text-base text-slate-900">
+                  日付ごとの空き時間の重なり
+                </h2>
+
+                <div className="grid grid-cols-3 sm:grid-cols-5 gap-1.5">
+                  {currentEvent.candidateDates.map(d => {
+                    const active = (selectedTimelineDate || currentEvent.candidateDates[0]) === d;
+                    return (
+                      <button
+                        key={d}
+                        onClick={() => setSelectedTimelineDate(d)}
+                        className={`py-2 px-2 rounded-xl font-bold text-xs transition ${
+                          active
+                            ? 'bg-slate-900 text-white shadow-sm'
+                            : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                        }`}
+                      >
+                        {formatJapaneseDate(d).short}
+                      </button>
+                    );
+                  })}
                 </div>
-              )}
+
+                {selectedTimelineDate && aggregated.dailyTimeline[selectedTimelineDate] && (
+                  <div className="space-y-1.5 pt-1">
+                    {aggregated.dailyTimeline[selectedTimelineDate]
+                      .filter((_, idx) => idx % 2 === 0)
+                      .map(slot => {
+                        const count = slot.available.length;
+                        const maxExpected = currentEvent.expectedCount;
+                        const pct = Math.min(100, Math.round((count / maxExpected) * 100));
+                        return (
+                          <div
+                            key={slot.time}
+                            className="flex items-center gap-2.5 text-xs py-1 px-2 rounded-xl hover:bg-slate-50"
+                          >
+                            <span className="font-mono font-bold text-slate-600 w-12 shrink-0">
+                              {slot.time}
+                            </span>
+                            <div className="flex-1 bg-slate-100 h-6 rounded-lg overflow-hidden relative flex items-center">
+                              <div
+                                className={`h-full transition-all ${
+                                  count >= maxExpected
+                                    ? 'bg-emerald-600'
+                                    : count >= Math.ceil(maxExpected * 0.7)
+                                    ? 'bg-emerald-500'
+                                    : count >= Math.ceil(maxExpected * 0.4)
+                                    ? 'bg-teal-400'
+                                    : count > 0
+                                    ? 'bg-cyan-300'
+                                    : 'bg-transparent'
+                                }`}
+                                style={{ width: `${pct}%` }}
+                              />
+                              <span className="absolute left-2.5 text-[11px] font-bold text-slate-800 drop-shadow-sm truncate right-2">
+                                {count > 0 ? slot.available.map(p => p.nickname).join(', ') : '空きなし'}
+                              </span>
+                            </div>
+                            <span className="w-12 text-right font-extrabold text-slate-800 shrink-0">
+                              {count}/{maxExpected}人
+                            </span>
+                          </div>
+                        );
+                      })}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         )}
@@ -2484,11 +2574,11 @@ useEffect(() => {
         ==================================================== */}
         {activeScreen === 'members' && currentEvent && (
           <div className="space-y-4">
-            <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-sm space-y-4">
+            <div className="bg-white rounded-3xl p-5 sm:p-6 border border-slate-200 shadow-sm space-y-4">
               <div className="flex items-center justify-between">
                 <div>
-                  <h1 className="text-lg font-extrabold text-slate-900">
-                    メンバー6人の回答一覧
+                  <h1 className="text-lg sm:text-xl font-extrabold text-slate-900">
+                    メンバーの回答一覧
                   </h1>
                   <p className="text-xs text-slate-500">
                     登録された空き時間と最終更新日時を確認できます
@@ -2502,68 +2592,68 @@ useEffect(() => {
                 </button>
               </div>
 
-              <div className="space-y-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {currentEvent.participants.map((p, idx) => (
                   <div
                     key={p.participantId}
-                    className="p-4 rounded-2xl border border-slate-200 bg-slate-50/50 space-y-3"
+                    className="p-4 rounded-2xl border border-slate-200 bg-slate-50/50 space-y-3 flex flex-col justify-between"
                   >
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <span className="w-6 h-6 rounded-full bg-emerald-600 text-white font-bold text-xs flex items-center justify-center">
-                          {idx + 1}
-                        </span>
-                        <span className="font-extrabold text-base text-slate-900">{p.nickname}</span>
-                        <span className="text-[11px] font-mono text-slate-400">ID:{p.participantId.slice(-4)}</span>
-                        <span className="text-[11px] font-bold bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full">
-                          回答済み
-                        </span>
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className="w-6 h-6 rounded-full bg-emerald-600 text-white font-bold text-xs flex items-center justify-center">
+                            {idx + 1}
+                          </span>
+                          <span className="font-extrabold text-base text-slate-900">{p.nickname}</span>
+                          <span className="text-[11px] font-bold bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full">
+                            回答済み
+                          </span>
+                        </div>
+                        <button
+                          onClick={() => handleRequestEditParticipant(p)}
+                          className="text-xs font-bold text-emerald-700 bg-white border border-emerald-200 px-3 py-1.5 rounded-xl flex items-center gap-1"
+                        >
+                          <Edit3 className="w-3.5 h-3.5" /> 変更
+                        </button>
                       </div>
-                      <button
-                        onClick={() => handleRequestEditParticipant(p)}
-                        className="text-xs font-bold text-emerald-700 bg-white border border-emerald-200 px-3 py-1.5 rounded-xl flex items-center gap-1"
-                      >
-                        <Edit3 className="w-3.5 h-3.5" /> 変更
-                      </button>
-                    </div>
 
-                    <div className="space-y-1.5">
-                      {currentEvent.candidateDates.map(d => {
-                        const dayAvail = p.availability[d];
-                        return (
-                          <div
-                            key={d}
-                            className="flex items-center justify-between text-xs bg-white px-3 py-2 rounded-xl border border-slate-200/70"
-                          >
-                            <span className="font-bold text-slate-700">{formatJapaneseDate(d).full}</span>
-                            <div className="flex flex-wrap gap-1 justify-end">
-                              {!dayAvail || dayAvail.status === 'unanswered' ? (
-                                <span className="text-amber-700 font-semibold">未入力</span>
-                              ) : dayAvail.status === 'unavailable' ? (
-                                <span className="text-slate-500 font-semibold">空いていない（NG）</span>
-                              ) : (
-                                dayAvail.ranges.map(r => (
-                                  <span
-                                    key={r.id}
-                                    className="font-mono font-bold bg-emerald-100 text-emerald-900 px-2 py-0.5 rounded-md"
-                                  >
-                                    {r.start}〜{r.end}
-                                  </span>
-                                ))
-                              )}
+                      <div className="space-y-1.5">
+                        {currentEvent.candidateDates.map(d => {
+                          const dayAvail = p.availability[d];
+                          return (
+                            <div
+                              key={d}
+                              className="flex items-center justify-between text-xs bg-white px-3 py-2 rounded-xl border border-slate-200/70"
+                            >
+                              <span className="font-bold text-slate-700">{formatJapaneseDate(d).full}</span>
+                              <div className="flex flex-wrap gap-1 justify-end">
+                                {!dayAvail || dayAvail.status === 'unanswered' ? (
+                                  <span className="text-amber-700 font-semibold">未入力</span>
+                                ) : dayAvail.status === 'unavailable' ? (
+                                  <span className="text-slate-500 font-semibold">空いていない（NG）</span>
+                                ) : (
+                                  dayAvail.ranges.map(r => (
+                                    <span
+                                      key={r.id}
+                                      className="font-mono font-bold bg-emerald-100 text-emerald-900 px-2 py-0.5 rounded-md"
+                                    >
+                                      {r.start}〜{r.end}
+                                    </span>
+                                  ))
+                                )}
+                              </div>
                             </div>
-                          </div>
-                        );
-                      })}
+                          );
+                        })}
+                      </div>
                     </div>
 
-                    <p className="text-[11px] text-slate-400 text-right">
+                    <p className="text-[11px] text-slate-400 text-right pt-1">
                       最終更新日時: {formatUpdatedTime(p.updatedAt)}
                     </p>
                   </div>
                 ))}
 
-                {/* 未回答枠の明示 */}
                 {Array.from({
                   length: Math.max(0, currentEvent.expectedCount - currentEvent.participants.length)
                 }).map((_, i) => {
@@ -2597,10 +2687,10 @@ useEffect(() => {
       </main>
 
       {/* ====================================================
-          スマホ向け下部固定ナビゲーションバー（片手操作最適化）
+          スマホ向け下部固定ナビゲーションバー（PCでは非表示）
       ==================================================== */}
       {currentEvent && activeScreen !== 'top' && activeScreen !== 'create' && (
-        <nav className="fixed bottom-0 left-0 right-0 z-30 bg-white/95 backdrop-blur border-t border-slate-200 px-2 py-1.5 shadow-lg">
+        <nav className="md:hidden fixed bottom-0 left-0 right-0 z-30 bg-white/95 backdrop-blur border-t border-slate-200 px-2 py-1.5 shadow-lg">
           <div className="max-w-lg mx-auto grid grid-cols-4 gap-1">
             <button
               onClick={() => setActiveScreen('home')}
@@ -2643,7 +2733,7 @@ useEffect(() => {
               }`}
             >
               <Users className="w-5 h-5" />
-              <span className="text-[11px]">6人の状況</span>
+              <span className="text-[11px]">回答状況</span>
             </button>
           </div>
         </nav>
@@ -2787,7 +2877,7 @@ useEffect(() => {
               <span>本人確認（上書き防止保護）</span>
             </div>
             <p className="text-xs text-slate-600 leading-relaxed">
-              <strong>{pinPromptTarget.nickname}</strong> さんの回答を別端末から編集するには、登録時の4桁の暗証番号を入力してください（サンプルデータは <code className="font-mono bg-slate-100 px-1">0000</code> または <code className="font-mono bg-slate-100 px-1">1234</code>）。
+              <strong>{pinPromptTarget.nickname}</strong> さんの回答を別端末から編集するには、登録時に設定した4桁の暗証番号を入力してください。
             </p>
             <input
               type="text"
@@ -2809,7 +2899,7 @@ useEffect(() => {
               <button
                 type="button"
                 onClick={() => {
-                  if (pinPromptInput === pinPromptTarget.pinCode || pinPromptInput === '0000') {
+                  if (pinPromptInput === pinPromptTarget.pinCode) {
                     openParticipantEditor(pinPromptTarget);
                   } else {
                     setPinPromptError('暗証番号が一致しません。');
@@ -2820,80 +2910,6 @@ useEffect(() => {
                 編集画面へ進む
               </button>
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* ====================================================
-          モーダル4: 設計・Firebase設定・セキュリティルール・デプロイ手順書
-      ==================================================== */}
-      {showTechGuideModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white w-full max-w-lg rounded-3xl p-5 space-y-4 shadow-2xl max-h-[85vh] flex flex-col">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <h3 className="font-extrabold text-base text-slate-900 flex items-center gap-2">
-                <FileCode className="w-5 h-5 text-emerald-600" />
-                <span>環境構築・セキュリティルール・デプロイ手順</span>
-              </h3>
-              <button
-                onClick={() => setShowTechGuideModal(false)}
-                className="text-xs font-bold text-slate-500 hover:text-slate-800 px-2 py-1"
-              >
-                閉じる
-              </button>
-            </div>
-
-            <div className="space-y-4 overflow-y-auto text-xs text-slate-700 leading-relaxed pr-1">
-              <div>
-                <h4 className="font-extrabold text-slate-900 mb-1">1. 環境変数 (.env.local)</h4>
-                <pre className="bg-slate-900 text-emerald-300 p-3 rounded-xl overflow-x-auto font-mono text-[11px]">
-{`VITE_FIREBASE_API_KEY=your_api_key
-VITE_FIREBASE_AUTH_DOMAIN=your_project.firebaseapp.com
-VITE_FIREBASE_PROJECT_ID=your_project_id
-VITE_FIREBASE_STORAGE_BUCKET=your_project.appspot.com
-VITE_FIREBASE_MESSAGING_SENDER_ID=123456789
-VITE_FIREBASE_APP_ID=1:123456789:web:abcdef`}
-                </pre>
-              </div>
-
-              <div>
-                <h4 className="font-extrabold text-slate-900 mb-1">2. Firestore セキュリティルール (firestore.rules)</h4>
-                <pre className="bg-slate-900 text-emerald-300 p-3 rounded-xl overflow-x-auto font-mono text-[11px]">
-{`rules_version = '2';
-service cloud.firestore {
-  match /databases/{database}/documents {
-    match /artifacts/{appId}/public/data/schedule_events/{eventId} {
-      allow read: if request.auth != null;
-      allow create, update: if request.auth != null
-        && request.resource.data.title is string
-        && request.resource.data.title.size() > 0
-        && request.resource.data.expectedCount >= 2;
-    }
-    match /artifacts/{appId}/users/{userId}/drafts/{draftId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
-    }
-  }
-}`}
-                </pre>
-              </div>
-
-              <div>
-                <h4 className="font-extrabold text-slate-900 mb-1">3. 6人のスマホで実際にテストする手順</h4>
-                <ol className="list-decimal list-inside space-y-1">
-                  <li>幹事が「新しい予定調整を作る」からイベントを作成し、「LINEで共有」をタップしてグループのトークルームにURLを送信します。</li>
-                  <li>6人それぞれがスマホのLINE内ブラウザまたはSafari/ChromeでURLを開きます。</li>
-                  <li>ニックネームを入力し、「13:00〜18:00」などの空き時間帯をまとめて追加して保存します。</li>
-                  <li>「集計ランキング」タブを開くと、全員が集まれる最長の日時が1位から順に表示されます。</li>
-                </ol>
-              </div>
-            </div>
-
-            <button
-              onClick={() => setShowTechGuideModal(false)}
-              className="w-full py-3 rounded-2xl bg-slate-900 text-white font-bold text-xs"
-            >
-              閉じる
-            </button>
           </div>
         </div>
       )}
