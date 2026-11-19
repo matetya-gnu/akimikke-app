@@ -4,6 +4,8 @@ import {
   getAuth,
   signInAnonymously,
   onAuthStateChanged,
+  GoogleAuthProvider,
+  signInWithPopup,
   type User
 } from 'firebase/auth';
 import {
@@ -40,7 +42,10 @@ import {
   XCircle,
   Info,
   ShieldCheck,
-  Send
+  Send,
+  Star,
+  Upload,
+  Wand2
 } from 'lucide-react';
 
 // ==========================================
@@ -66,11 +71,15 @@ const appId = 'akimikke-schedule-app';
 // 2. 型定義 (データ構造)
 // ==========================================
 
+/** 空き時間の希望度（available: ●参加できる, preferred: ★できればここ希望） */
+export type AvailabilityLevel = 'available' | 'preferred';
+
 /** 空き時間の1区間（例: "13:00" 〜 "18:00"） */
 export interface TimeRange {
   id: string;
   start: string; // "HH:MM" (24時間表記、30分単位)
   end: string;   // "HH:MM" (24時間表記、30分単位)
+  level?: AvailabilityLevel; // 省略時は 'available'(●)、'preferred' は ★(希望)
 }
 
 /** 1日あたりの空き時間ステータス */
@@ -125,13 +134,42 @@ interface RankedCandidate {
   end: string;
   durationMinutes: number;
   availableParticipants: Participant[];
+  preferredParticipants: Participant[];
   unavailableParticipants: Participant[];
   unansweredCount: number;
   score: number;
 }
 
+// 端末ごとの回答所有記録用ローカルストレージキー（再入力なしで編集するため）
+const OWNED_PARTICIPANTS_STORAGE_KEY = 'akimikke_owned_participant_ids_v1';
+
+const loadOwnedParticipantIds = (): string[] => {
+  try {
+    const raw = window.localStorage.getItem(OWNED_PARTICIPANTS_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+};
+
+const saveOwnedParticipantId = (participantId: string) => {
+  try {
+    const current = loadOwnedParticipantIds();
+    if (!current.includes(participantId)) {
+      window.localStorage.setItem(
+        OWNED_PARTICIPANTS_STORAGE_KEY,
+        JSON.stringify([...current, participantId])
+      );
+    }
+  } catch {
+    // ignore storage errors
+  }
+};
+
 // ==========================================
-// 3. ユーティリティ関数（時刻・日付・区間結合・区間削除）
+// 3. ユーティリティ関数（時刻・日付・区間結合・区間削除・ICS解析）
 // ==========================================
 
 const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
@@ -194,7 +232,7 @@ const formatUpdatedTime = (ms: number): string => {
   return `${month}/${day} ${hours}:${mins}`;
 };
 
-/** 重複・隣接する時間帯（例: 13:00〜18:00 と 17:00〜20:00）を自動結合し時刻順に整列 */
+/** 重複・隣接する時間帯（例: 13:00〜18:00 と 17:00〜20:00）を同じ希望度ごとに自動結合し時刻順に整列 */
 const mergeTimeRanges = (ranges: TimeRange[]): { merged: TimeRange[]; didMerge: boolean } => {
   if (ranges.length <= 1) return { merged: ranges, didMerge: false };
   const validRanges = ranges.filter(r => timeToMinutes(r.start) < timeToMinutes(r.end));
@@ -204,21 +242,23 @@ const mergeTimeRanges = (ranges: TimeRange[]): { merged: TimeRange[]; didMerge: 
   let didMerge = false;
 
   for (const current of sorted) {
+    const currLevel: AvailabilityLevel = current.level || 'available';
     if (result.length === 0) {
-      result.push({ ...current });
+      result.push({ ...current, level: currLevel });
     } else {
       const last = result[result.length - 1];
+      const lastLevel: AvailabilityLevel = last.level || 'available';
       const lastEnd = timeToMinutes(last.end);
       const currStart = timeToMinutes(current.start);
       const currEnd = timeToMinutes(current.end);
 
-      if (currStart <= lastEnd) {
+      if (currStart <= lastEnd && currLevel === lastLevel) {
         didMerge = true;
         if (currEnd > lastEnd) {
           last.end = minutesToTime(currEnd);
         }
       } else {
-        result.push({ ...current });
+        result.push({ ...current, level: currLevel });
       }
     }
   }
@@ -233,10 +273,11 @@ const subtractTimeRanges = (ranges: TimeRange[], remStartMins: number, remEndMin
   for (const r of ranges) {
     const rStart = timeToMinutes(r.start);
     const rEnd = timeToMinutes(r.end);
+    const rLevel: AvailabilityLevel = r.level || 'available';
 
     // 重なりがない場合はそのまま残す
     if (remEndMins <= rStart || remStartMins >= rEnd) {
-      result.push(r);
+      result.push({ ...r, level: rLevel });
       continue;
     }
 
@@ -245,7 +286,8 @@ const subtractTimeRanges = (ranges: TimeRange[], remStartMins: number, remEndMin
       result.push({
         id: `rng-${Date.now()}-${Math.random().toString(36).substring(2, 6)}-a`,
         start: minutesToTime(rStart),
-        end: minutesToTime(remStartMins)
+        end: minutesToTime(remStartMins),
+        level: rLevel
       });
     }
 
@@ -254,12 +296,102 @@ const subtractTimeRanges = (ranges: TimeRange[], remStartMins: number, remEndMin
       result.push({
         id: `rng-${Date.now()}-${Math.random().toString(36).substring(2, 6)}-b`,
         start: minutesToTime(remEndMins),
-        end: minutesToTime(rEnd)
+        end: minutesToTime(rEnd),
+        level: rLevel
       });
     }
   }
 
   return result;
+};
+
+/** 指定した範囲 [addStartMins, addEndMins] を指定の希望度（●または★）で上書き反映し綺麗に結合する */
+const applyLevelToRanges = (
+  ranges: TimeRange[],
+  addStartMins: number,
+  addEndMins: number,
+  level: AvailabilityLevel
+): { merged: TimeRange[]; didMerge: boolean } => {
+  const cleared = subtractTimeRanges(ranges, addStartMins, addEndMins);
+  const newRange: TimeRange = {
+    id: `rng-${Date.now()}-${Math.random().toString(36).substring(2, 5)}`,
+    start: minutesToTime(addStartMins),
+    end: minutesToTime(addEndMins),
+    level
+  };
+  return mergeTimeRanges([...cleared, newRange]);
+};
+
+/** 簡易 .ics（iCalendar）パーサー：Googleカレンダー等からエクスポートした予定の開始・終了時刻を抽出 */
+const parseIcsBusyIntervals = (icsText: string): { start: Date; end: Date; isAllDay: boolean }[] => {
+  const unfolded = icsText.replace(/\r\n[ \t]/g, '').replace(/\n[ \t]/g, '');
+  const blocks = unfolded.split('BEGIN:VEVENT').slice(1);
+  const busyList: { start: Date; end: Date; isAllDay: boolean }[] = [];
+
+  const parseIcsDate = (val: string): { date: Date; isAllDay: boolean } | null => {
+    const clean = val.trim();
+    // YYYYMMDD (終日予定)
+    if (/^\d{8}$/.test(clean)) {
+      const y = Number(clean.slice(0, 4));
+      const m = Number(clean.slice(4, 6)) - 1;
+      const d = Number(clean.slice(6, 8));
+      return { date: new Date(y, m, d, 0, 0, 0), isAllDay: true };
+    }
+    // YYYYMMDDTHHMMSS(Z)
+    const match = clean.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})(Z?)$/);
+    if (match) {
+      const [, ys, ms, ds, hs, mins, ss, isUtc] = match;
+      if (isUtc === 'Z') {
+        return {
+          date: new Date(Date.UTC(Number(ys), Number(ms) - 1, Number(ds), Number(hs), Number(mins), Number(ss))),
+          isAllDay: false
+        };
+      }
+      return {
+        date: new Date(Number(ys), Number(ms) - 1, Number(ds), Number(hs), Number(mins), Number(ss)),
+        isAllDay: false
+      };
+    }
+    return null;
+  };
+
+  for (const block of blocks) {
+    const endIdx = block.indexOf('END:VEVENT');
+    const content = endIdx >= 0 ? block.slice(0, endIdx) : block;
+    const lines = content.split(/\r?\n/);
+
+    let dtStartRaw = '';
+    let dtEndRaw = '';
+    let isTransparent = false;
+
+    for (const line of lines) {
+      if (line.startsWith('DTSTART')) {
+        const colonIdx = line.indexOf(':');
+        if (colonIdx >= 0) dtStartRaw = line.slice(colonIdx + 1);
+      } else if (line.startsWith('DTEND')) {
+        const colonIdx = line.indexOf(':');
+        if (colonIdx >= 0) dtEndRaw = line.slice(colonIdx + 1);
+      } else if (line.startsWith('TRANSP:TRANSPARENT')) {
+        isTransparent = true;
+      }
+    }
+
+    if (isTransparent || !dtStartRaw) continue;
+    const parsedStart = parseIcsDate(dtStartRaw);
+    if (!parsedStart) continue;
+    const parsedEnd = dtEndRaw ? parseIcsDate(dtEndRaw) : null;
+    const endDate = parsedEnd
+      ? parsedEnd.date
+      : new Date(parsedStart.date.getTime() + (parsedStart.isAllDay ? 86400000 : 3600000));
+
+    busyList.push({
+      start: parsedStart.date,
+      end: endDate,
+      isAllDay: parsedStart.isAllDay
+    });
+  }
+
+  return busyList;
 };
 
 /** 明日からの候補日リストを生成 */
@@ -276,30 +408,60 @@ const getUpcomingDates = (daysCount: number, offsetDays = 1): string[] => {
 };
 
 // ==========================================
-// 4. 集計アルゴリズム（30分単位スライス＆極大連続区間抽出）
+// 4. 集計アルゴリズム（30分単位スライス＆極大連続区間抽出・★希望対応）
 // ==========================================
 const calculateAggregatedResults = (
   event: ScheduleEvent,
   minDurationMinutes = 60
 ): {
   rankings: RankedCandidate[];
-  dailyTimeline: Record<string, { time: string; endTime: string; available: Participant[]; unavailable: Participant[]; unansweredCount: number }[]>;
+  dailyTimeline: Record<
+    string,
+    {
+      time: string;
+      endTime: string;
+      available: Participant[];
+      preferred: Participant[];
+      unavailable: Participant[];
+      unansweredCount: number;
+    }[]
+  >;
+  maxSlotCount: number;
 } => {
   const startMins = timeToMinutes(event.dayStartTime);
   const endMins = timeToMinutes(event.dayEndTime);
   const answeredCount = event.participants.length;
   const unansweredGlobalCount = Math.max(0, event.expectedCount - answeredCount);
 
-  const dailyTimeline: Record<string, { time: string; endTime: string; available: Participant[]; unavailable: Participant[]; unansweredCount: number }[]> = {};
+  const dailyTimeline: Record<
+    string,
+    {
+      time: string;
+      endTime: string;
+      available: Participant[];
+      preferred: Participant[];
+      unavailable: Participant[];
+      unansweredCount: number;
+    }[]
+  > = {};
   const rawIntervals: RankedCandidate[] = [];
+  let maxSlotCount = 0;
 
   for (const date of event.candidateDates) {
-    const slots: { time: string; endTime: string; available: Participant[]; unavailable: Participant[]; unansweredCount: number }[] = [];
+    const slots: {
+      time: string;
+      endTime: string;
+      available: Participant[];
+      preferred: Participant[];
+      unavailable: Participant[];
+      unansweredCount: number;
+    }[] = [];
 
     for (let m = startMins; m < endMins; m += 30) {
       const slotStart = m;
       const slotEnd = m + 30;
       const available: Participant[] = [];
+      const preferred: Participant[] = [];
       const unavailable: Participant[] = [];
       let unansweredForDay = unansweredGlobalCount;
 
@@ -310,23 +472,31 @@ const calculateAggregatedResults = (
         } else if (dayData.status === 'unavailable') {
           unavailable.push(p);
         } else {
-          const isFree = dayData.ranges.some(r => {
+          const matchedRanges = dayData.ranges.filter(r => {
             const rStart = timeToMinutes(r.start);
             const rEnd = timeToMinutes(r.end);
             return rStart <= slotStart && rEnd >= slotEnd;
           });
-          if (isFree) {
+          if (matchedRanges.length > 0) {
             available.push(p);
+            if (matchedRanges.some(r => r.level === 'preferred')) {
+              preferred.push(p);
+            }
           } else {
             unavailable.push(p);
           }
         }
       }
 
+      if (available.length > maxSlotCount) {
+        maxSlotCount = available.length;
+      }
+
       slots.push({
         time: minutesToTime(slotStart),
         endTime: minutesToTime(slotEnd),
         available,
+        preferred,
         unavailable,
         unansweredCount: unansweredForDay
       });
@@ -339,10 +509,13 @@ const calculateAggregatedResults = (
       if (slots[i].available.length === 0) continue;
 
       let currentAvail = [...slots[i].available];
+      let currentPref = [...slots[i].preferred];
 
       for (let j = i; j < numSlots; j++) {
         const nextIds = new Set(slots[j].available.map(p => p.participantId));
         currentAvail = currentAvail.filter(p => nextIds.has(p.participantId));
+        const nextPrefIds = new Set(slots[j].preferred.map(p => p.participantId));
+        currentPref = currentPref.filter(p => nextPrefIds.has(p.participantId));
 
         if (currentAvail.length === 0) break;
 
@@ -375,9 +548,10 @@ const calculateAggregatedResults = (
             end: slots[j].endTime,
             durationMinutes: duration,
             availableParticipants: currentAvail,
+            preferredParticipants: currentPref,
             unavailableParticipants: unavailList,
             unansweredCount: unansweredDayCount,
-            score: currentAvail.length * 10000 + duration
+            score: currentAvail.length * 100000 + currentPref.length * 1000 + duration
           });
         }
       }
@@ -387,6 +561,9 @@ const calculateAggregatedResults = (
   rawIntervals.sort((a, b) => {
     if (b.availableParticipants.length !== a.availableParticipants.length) {
       return b.availableParticipants.length - a.availableParticipants.length;
+    }
+    if (b.preferredParticipants.length !== a.preferredParticipants.length) {
+      return b.preferredParticipants.length - a.preferredParticipants.length;
     }
     if (b.durationMinutes !== a.durationMinutes) {
       return b.durationMinutes - a.durationMinutes;
@@ -419,7 +596,8 @@ const calculateAggregatedResults = (
 
   return {
     rankings: deduplicated.slice(0, 15),
-    dailyTimeline
+    dailyTimeline,
+    maxSlotCount
   };
 };
 
@@ -429,6 +607,7 @@ const calculateAggregatedResults = (
 export default function App() {
   // --- Auth & Firestore State ---
   const [user, setUser] = useState<User | null>(null);
+  const [ownedParticipantIds, setOwnedParticipantIds] = useState<string[]>(() => loadOwnedParticipantIds());
   const [eventsMap, setEventsMap] = useState<Record<string, ScheduleEvent>>({});
   const [currentEventId, setCurrentEventId] = useState<string | null>(null);
   const [userDrafts, setUserDrafts] = useState<Record<string, DraftData>>({});
@@ -465,18 +644,25 @@ export default function App() {
   const [availabilityDraft, setAvailabilityDraft] = useState<Record<string, DayAvailability>>({});
   const [pickerStart, setPickerStart] = useState('13:00');
   const [pickerEnd, setPickerEnd] = useState('18:00');
+  const [pickerLevel, setPickerLevel] = useState<AvailabilityLevel>('available');
   const [rangeWarning, setRangeWarning] = useState<string | null>(null);
   const [showCopyModal, setShowCopyModal] = useState(false);
   const [copyTargetDates, setCopyTargetDates] = useState<string[]>([]);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
-  // --- Drag Selection State (PC専用: 追加モード / 削除モード自動判定) ---
+  // --- Google Calendar Sync State ---
+  const [isSyncingCalendar, setIsSyncingCalendar] = useState(false);
+  const [showCalendarSyncHelpModal, setShowCalendarSyncHelpModal] = useState(false);
+
+  // --- Timeline Brush & Slide/Drag State (スマホ1時間縦スライド & PCドラッグ両対応) ---
+  const [activeBrush, setActiveBrush] = useState<'available' | 'preferred' | 'remove'>('available');
   const [dragState, setDragState] = useState<{
     date: string;
     startMins: number;
     currentMins: number;
-    mode: 'add' | 'remove';
+    stepMins: number; // 60 (スマホ1時間縦タイムライン) or 30 (PCグリッド)
+    mode: 'available' | 'preferred' | 'remove';
   } | null>(null);
 
   // --- PIN Verification Modal for other devices ---
@@ -750,10 +936,15 @@ export default function App() {
     setActiveScreen('input');
   };
 
-  /** 既存参加者の編集を開始 */
+  /** 既存参加者の編集を開始（同じ端末ならパスワード再入力不要） */
+  const isParticipantOwnedByDevice = (p: Participant): boolean => {
+    if (user && p.ownerUid === user.uid) return true;
+    return ownedParticipantIds.includes(p.participantId);
+  };
+
   const handleRequestEditParticipant = (p: Participant) => {
     if (!currentEvent) return;
-    if (user && p.ownerUid === user.uid) {
+    if (isParticipantOwnedByDevice(p)) {
       openParticipantEditor(p);
     } else {
       setPinPromptTarget(p);
@@ -812,15 +1003,21 @@ export default function App() {
   };
 
   // ==========================================
-  // 4) 空き時間レンジ操作（追加・ドラッグ追加/削除・プリセット・終日・削除・コピー）
+  // 4) 空き時間レンジ操作（追加・ドラッグ・プリセット・終日・削除・コピー）
   // ==========================================
   const currentEditingDate = currentEvent ? currentEvent.candidateDates[selectedDateIndex] : '';
   const currentDayData: DayAvailability = currentEditingDate && availabilityDraft[currentEditingDate]
     ? availabilityDraft[currentEditingDate]
     : { date: currentEditingDate, status: 'unanswered', ranges: [] };
 
-  /** 任意の日付に時間帯レンジ（開始〜終了）を追加（既存データを消さずに自動結合） */
-  const handleAddTimeRangeForDate = (targetDate: string, startStr: string, endStr: string) => {
+  /** 任意の日付に時間帯レンジ（開始〜終了・希望度付き）を追加（既存データを消さずに自動結合） */
+  const handleAddTimeRangeForDate = (
+    targetDate: string,
+    startStr: string,
+    endStr: string,
+    level: AvailabilityLevel = 'available',
+    silent = false
+  ) => {
     if (!targetDate) return;
     setRangeWarning(null);
 
@@ -832,12 +1029,6 @@ export default function App() {
       return;
     }
 
-    const newRange: TimeRange = {
-      id: `rng-${Date.now()}-${Math.random().toString(36).substring(2, 5)}`,
-      start: startStr,
-      end: endStr
-    };
-
     const targetDayData = availabilityDraft[targetDate] || {
       date: targetDate,
       status: 'unanswered',
@@ -845,7 +1036,7 @@ export default function App() {
     };
 
     const existingRanges = targetDayData.status === 'available' ? targetDayData.ranges : [];
-    const { merged, didMerge } = mergeTimeRanges([...existingRanges, newRange]);
+    const { merged, didMerge } = applyLevelToRanges(existingRanges, startM, endM, level);
 
     const nextAvail: Record<string, DayAvailability> = {
       ...availabilityDraft,
@@ -859,14 +1050,17 @@ export default function App() {
     setAvailabilityDraft(nextAvail);
     saveDraftToCloud(nextAvail);
 
-    if (didMerge) {
-      showToast(`${formatJapaneseDate(targetDate).short} の重なる時間帯を自動でまとめました✨`);
-    } else {
-      showToast(`${formatJapaneseDate(targetDate).short} に ${startStr}〜${endStr} を追加しました`);
+    if (!silent) {
+      const mark = level === 'preferred' ? '★希望' : '●空き';
+      if (didMerge) {
+        showToast(`${formatJapaneseDate(targetDate).short} の重なる時間帯をまとめました✨`);
+      } else {
+        showToast(`${formatJapaneseDate(targetDate).short} に ${startStr}〜${endStr}（${mark}）を反映しました`);
+      }
     }
   };
 
-  /** 任意の日付から指定した時間範囲 [remStartMins, remEndMins] をドラッグで削除する */
+  /** 任意の日付から指定した時間範囲 [remStartMins, remEndMins] をドラッグ・スライドで削除する */
   const handleSubtractTimeRangeForDate = (targetDate: string, remStartMins: number, remEndMins: number) => {
     if (!targetDate) return;
     const targetDayData = availabilityDraft[targetDate];
@@ -890,43 +1084,53 @@ export default function App() {
   };
 
   /** 現在選択中の日付に時間帯を追加 */
-  const handleAddTimeRange = (startStr: string, endStr: string) => {
-    handleAddTimeRangeForDate(currentEditingDate, startStr, endStr);
+  const handleAddTimeRange = (startStr: string, endStr: string, level: AvailabilityLevel = 'available') => {
+    handleAddTimeRangeForDate(currentEditingDate, startStr, endStr, level);
   };
 
-  /** PC用ドラッグ操作の完了処理（マウスを離した時に追加または削除を実行） */
+  /** スライド・ドラッグ操作の完了処理（指またはマウスを離した時に●追加 / ★希望 / ×消去を実行） */
   useEffect(() => {
     if (!dragState) return;
 
-    const handleGlobalMouseUp = () => {
+    const handleFinishDrag = () => {
       const minSlot = Math.min(dragState.startMins, dragState.currentMins);
-      const maxSlot = Math.max(dragState.startMins, dragState.currentMins) + 30;
+      const maxSlot = Math.max(dragState.startMins, dragState.currentMins) + dragState.stepMins;
+      const clampedEnd = currentEvent
+        ? Math.min(maxSlot, timeToMinutes(currentEvent.dayEndTime))
+        : maxSlot;
       const targetDate = dragState.date;
       const mode = dragState.mode;
 
       setDragState(null);
 
+      if (clampedEnd <= minSlot) return;
+
       if (mode === 'remove') {
-        handleSubtractTimeRangeForDate(targetDate, minSlot, maxSlot);
+        handleSubtractTimeRangeForDate(targetDate, minSlot, clampedEnd);
       } else {
-        handleAddTimeRangeForDate(targetDate, minutesToTime(minSlot), minutesToTime(maxSlot));
+        handleAddTimeRangeForDate(targetDate, minutesToTime(minSlot), minutesToTime(clampedEnd), mode);
       }
     };
 
-    window.addEventListener('mouseup', handleGlobalMouseUp);
+    window.addEventListener('mouseup', handleFinishDrag);
+    window.addEventListener('touchend', handleFinishDrag);
+    window.addEventListener('touchcancel', handleFinishDrag);
     return () => {
-      window.removeEventListener('mouseup', handleGlobalMouseUp);
+      window.removeEventListener('mouseup', handleFinishDrag);
+      window.removeEventListener('touchend', handleFinishDrag);
+      window.removeEventListener('touchcancel', handleFinishDrag);
     };
   });
 
-  /** 「終日空いている」をワンタップでセット */
-  const handleSetAllDayAvailable = () => {
+  /** 「この日すべて（● または ★）」をワンタップでセット */
+  const handleSetAllDayAvailable = (level: AvailabilityLevel = 'available') => {
     if (!currentEvent || !currentEditingDate) return;
     setRangeWarning(null);
     const fullRange: TimeRange = {
       id: `rng-allday-${Date.now()}`,
       start: currentEvent.dayStartTime,
-      end: currentEvent.dayEndTime
+      end: currentEvent.dayEndTime,
+      level
     };
     const nextAvail: Record<string, DayAvailability> = {
       ...availabilityDraft,
@@ -938,7 +1142,220 @@ export default function App() {
     };
     setAvailabilityDraft(nextAvail);
     saveDraftToCloud(nextAvail);
-    showToast(`終日空いている（${currentEvent.dayStartTime}〜${currentEvent.dayEndTime}）に設定しました`);
+    const label = level === 'preferred' ? '★ 希望' : '● 空き';
+    showToast(`この日すべてを「${label}」（${currentEvent.dayStartTime}〜${currentEvent.dayEndTime}）に設定しました`);
+  };
+
+  /** 「空いているところをすべて●」：全候補日のうち未入力の枠をすべて空き（●）で一括入力 */
+  const handleFillAllEmptyAsAvailable = () => {
+    if (!currentEvent) return;
+    setRangeWarning(null);
+    const nextAvail: Record<string, DayAvailability> = { ...availabilityDraft };
+    const startM = timeToMinutes(currentEvent.dayStartTime);
+    const endM = timeToMinutes(currentEvent.dayEndTime);
+    let updatedDays = 0;
+
+    currentEvent.candidateDates.forEach(d => {
+      const existing = nextAvail[d];
+      if (!existing || existing.status === 'unanswered') {
+        nextAvail[d] = {
+          date: d,
+          status: 'available',
+          ranges: [
+            {
+              id: `rng-fill-${d}-${Date.now()}`,
+              start: currentEvent.dayStartTime,
+              end: currentEvent.dayEndTime,
+              level: 'available'
+            }
+          ]
+        };
+        updatedDays += 1;
+      } else if (existing.status === 'available') {
+        // 既に★希望などが入っている場合、残りの空き部分をすべて●で埋める（★はそのまま保持）
+        const preferredOnly = existing.ranges.filter(r => r.level === 'preferred');
+        let baseRanges: TimeRange[] = [
+          {
+            id: `rng-base-${d}-${Date.now()}`,
+            start: minutesToTime(startM),
+            end: minutesToTime(endM),
+            level: 'available'
+          }
+        ];
+        preferredOnly.forEach(pr => {
+          const applied = applyLevelToRanges(baseRanges, timeToMinutes(pr.start), timeToMinutes(pr.end), 'preferred');
+          baseRanges = applied.merged;
+        });
+        nextAvail[d] = {
+          date: d,
+          status: 'available',
+          ranges: baseRanges
+        };
+        updatedDays += 1;
+      }
+    });
+
+    setAvailabilityDraft(nextAvail);
+    saveDraftToCloud(nextAvail);
+    showToast(
+      updatedDays > 0
+        ? `空いているところをすべて ● に一括入力しました！（${updatedDays}日分）`
+        : 'すべての日に予定が設定済みです'
+    );
+  };
+
+  /** カレンダー予定（busyIntervals）から全候補日の「×（予定あり）」と「●（空き）」を自動反映する共通処理 */
+  const applyBusyIntervalsToDraft = (busyList: { start: Date; end: Date; isAllDay: boolean }[], sourceLabel: string) => {
+    if (!currentEvent) return;
+    const dayStartM = timeToMinutes(currentEvent.dayStartTime);
+    const dayEndM = timeToMinutes(currentEvent.dayEndTime);
+    const nextAvail: Record<string, DayAvailability> = { ...availabilityDraft };
+
+    for (const ymd of currentEvent.candidateDates) {
+      const [y, m, d] = ymd.split('-').map(Number);
+      const dayBaseStart = new Date(y, m - 1, d, 0, 0, 0);
+      const dayBaseEnd = new Date(y, m - 1, d, 23, 59, 59);
+
+      // まず終日「● 空き」からスタート
+      let freeRanges: TimeRange[] = [
+        {
+          id: `rng-gcal-${ymd}-${Date.now()}`,
+          start: currentEvent.dayStartTime,
+          end: currentEvent.dayEndTime,
+          level: 'available'
+        }
+      ];
+
+      for (const busy of busyList) {
+        if (busy.end <= dayBaseStart || busy.start >= dayBaseEnd) continue;
+
+        if (busy.isAllDay) {
+          freeRanges = [];
+          break;
+        }
+
+        const clippedStart = busy.start < dayBaseStart ? dayBaseStart : busy.start;
+        const clippedEnd = busy.end > dayBaseEnd ? dayBaseEnd : busy.end;
+
+        // 30分単位に丸めて予定区間を安全に除外（開始は切り捨て、終了は切り上げ）
+        const bStartMins = Math.floor((clippedStart.getHours() * 60 + clippedStart.getMinutes()) / 30) * 30;
+        const bEndMins = Math.ceil((clippedEnd.getHours() * 60 + clippedEnd.getMinutes()) / 30) * 30;
+
+        const remStart = Math.max(dayStartM, bStartMins);
+        const remEnd = Math.min(dayEndM, bEndMins);
+
+        if (remEnd > remStart) {
+          freeRanges = subtractTimeRanges(freeRanges, remStart, remEnd);
+        }
+      }
+
+      nextAvail[ymd] = {
+        date: ymd,
+        status: freeRanges.length > 0 ? 'available' : 'unavailable',
+        ranges: freeRanges
+      };
+    }
+
+    setAvailabilityDraft(nextAvail);
+    saveDraftToCloud(nextAvail);
+    showToast(`${sourceLabel}から予定(×)と空き時間(●)を自動反映しました！✨`);
+  };
+
+  /** Googleカレンダーと自動連携（OAuthポップアップで直接読み取り） */
+  const handleSyncGoogleCalendar = async () => {
+    if (!currentEvent) return;
+    setIsSyncingCalendar(true);
+    setErrorMessage(null);
+
+    try {
+      const provider = new GoogleAuthProvider();
+      provider.addScope('https://www.googleapis.com/auth/calendar.readonly');
+      provider.setCustomParameters({ prompt: 'select_account' });
+
+      const result = await signInWithPopup(auth, provider);
+      const credential = GoogleAuthProvider.credentialFromResult(result);
+      const accessToken = credential?.accessToken;
+
+      if (!accessToken) {
+        throw new Error('NO_ACCESS_TOKEN');
+      }
+
+      const sortedDates = [...currentEvent.candidateDates].sort();
+      const firstDate = sortedDates[0];
+      const lastDate = sortedDates[sortedDates.length - 1];
+      const [fy, fm, fd] = firstDate.split('-').map(Number);
+      const [ly, lm, ld] = lastDate.split('-').map(Number);
+
+      const timeMin = new Date(fy, fm - 1, fd, 0, 0, 0).toISOString();
+      const timeMax = new Date(ly, lm - 1, ld, 23, 59, 59).toISOString();
+
+      const apiUrl =
+        `https://www.googleapis.com/calendar/v3/calendars/primary/events?` +
+        `timeMin=${encodeURIComponent(timeMin)}&timeMax=${encodeURIComponent(timeMax)}&singleEvents=true&orderBy=startTime`;
+
+      const resp = await fetch(apiUrl, {
+        headers: { Authorization: `Bearer ${accessToken}` }
+      });
+
+      if (!resp.ok) {
+        throw new Error(`CALENDAR_API_${resp.status}`);
+      }
+
+      const data = await resp.json();
+      const items = Array.isArray(data.items) ? data.items : [];
+      const busyList: { start: Date; end: Date; isAllDay: boolean }[] = [];
+
+      for (const item of items) {
+        if (item.status === 'cancelled' || item.transparency === 'transparent') continue;
+        if (item.start?.date) {
+          const [sy, sm, sd] = item.start.date.split('-').map(Number);
+          const [ey, em, ed] = (item.end?.date || item.start.date).split('-').map(Number);
+          busyList.push({
+            start: new Date(sy, sm - 1, sd, 0, 0, 0),
+            end: new Date(ey, em - 1, ed, 0, 0, 0),
+            isAllDay: true
+          });
+        } else if (item.start?.dateTime && item.end?.dateTime) {
+          busyList.push({
+            start: new Date(item.start.dateTime),
+            end: new Date(item.end.dateTime),
+            isAllDay: false
+          });
+        }
+      }
+
+      applyBusyIntervalsToDraft(busyList, 'Googleカレンダー');
+    } catch (err: unknown) {
+      console.error('Google Calendar sync error:', err);
+      const code = (err as { code?: string })?.code || '';
+      if (code === 'auth/popup-closed-by-user') {
+        showToast('Googleカレンダー連携をキャンセルしました');
+      } else {
+        setShowCalendarSyncHelpModal(true);
+      }
+    } finally {
+      setIsSyncingCalendar(false);
+    }
+  };
+
+  /** .ics（iCalendar）ファイルからの自動取り込み（Google / Apple / Outlook 全対応） */
+  const handleImportIcsFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const text = String(reader.result || '');
+        const busyList = parseIcsBusyIntervals(text);
+        applyBusyIntervalsToDraft(busyList, 'カレンダーファイル(.ics)');
+        setShowCalendarSyncHelpModal(false);
+      } catch (err) {
+        console.error('ICS parse error:', err);
+        setErrorMessage('カレンダーファイルの読み込みに失敗しました。.ics形式のファイルを選択してください。');
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
   };
 
   /** 「この日は空いていない（終日NG）」をワンタップでセット */
@@ -980,13 +1397,16 @@ export default function App() {
     handleRemoveTimeRangeForDate(currentEditingDate, rangeId);
   };
 
-  /** 登録済み時間帯カードの開始・終了時刻を直接修正 */
-  const handleUpdateTimeRange = (rangeId: string, field: 'start' | 'end', value: string) => {
+  /** 登録済み時間帯カードの開始・終了時刻・希望度(●/★)を直接修正 */
+  const handleUpdateTimeRange = (rangeId: string, field: 'start' | 'end' | 'level', value: string) => {
     if (!currentEditingDate) return;
     setRangeWarning(null);
 
     const updatedRanges = currentDayData.ranges.map(r => {
       if (r.id !== rangeId) return r;
+      if (field === 'level') {
+        return { ...r, level: value as AvailabilityLevel };
+      }
       const nextStart = field === 'start' ? value : r.start;
       const nextEnd = field === 'end' ? value : r.end;
       if (timeToMinutes(nextStart) >= timeToMinutes(nextEnd)) {
@@ -1080,6 +1500,10 @@ export default function App() {
 
       const eventRef = doc(db, 'artifacts', appId, 'public', 'data', 'schedule_events', currentEvent.eventId);
       await setDoc(eventRef, updatedEvent);
+
+      // この端末で保存した回答IDを記憶（次回以降パスワード不要で再編集可能に）
+      saveOwnedParticipantId(pId);
+      setOwnedParticipantIds(prev => (prev.includes(pId) ? prev : [...prev, pId]));
 
       setShowConfirmModal(false);
       setActiveScreen('results');
@@ -1179,6 +1603,18 @@ export default function App() {
     const endM = timeToMinutes(currentEvent.dayEndTime);
     const slots: number[] = [];
     for (let m = startM; m < endM; m += 30) {
+      slots.push(m);
+    }
+    return slots;
+  }, [currentEvent]);
+
+  // スマホ縦スライドタイムライン用の1時間刻みスロット配列
+  const hourlyTimeSlots = useMemo(() => {
+    if (!currentEvent) return [];
+    const startM = timeToMinutes(currentEvent.dayStartTime);
+    const endM = timeToMinutes(currentEvent.dayEndTime);
+    const slots: number[] = [];
+    for (let m = startM; m < endM; m += 60) {
       slots.push(m);
     }
     return slots;
@@ -1304,13 +1740,13 @@ export default function App() {
               <div className="bg-gradient-to-br from-emerald-600 via-teal-600 to-cyan-700 rounded-3xl p-6 sm:p-8 text-white shadow-lg">
                 <div className="inline-flex items-center gap-1.5 bg-white/20 backdrop-blur px-3 py-1 rounded-full text-xs font-bold mb-3">
                   <Sparkles className="w-3.5 h-3.5" />
-                  <span>LINEグループの予定調整に最適！</span>
+                  <span>登録不要・完全無料・広告なし</span>
                 </div>
                 <h1 className="text-2xl sm:text-3xl font-extrabold leading-snug mb-3">
-                  30分ごとの○×ポチポチは<br />もう終わり！
+                  指でなぞるだけで完了！<br />みんなの空き時間調整
                 </h1>
                 <p className="text-emerald-50 text-sm sm:text-base leading-relaxed mb-6">
-                  「13:00〜18:00」のように空いている時間帯をまとめて選ぶだけ。PCならカレンダーのドラッグ追加・消去にも対応し、みんなが集まれるベストな日時を自動で見つけます。
+                  1時間ごとの縦タイムラインをなぞって「●参加可」「★希望」をサクッと入力。Googleカレンダー自動連携や一括入力ボタンで、最適な日時がひと目で分かります。
                 </p>
 
                 <button
@@ -1337,8 +1773,8 @@ export default function App() {
                       1
                     </span>
                     <div>
-                      <p className="font-bold text-sm text-slate-900">候補日を選んでLINEでURL共有</p>
-                      <p className="text-xs text-slate-600 mt-1">アプリ登録・ログイン不要。URLを開くだけで参加できます。</p>
+                      <p className="font-bold text-sm text-slate-900">登録不要でURLを共有</p>
+                      <p className="text-xs text-slate-600 mt-1">ログインも広告もなし。LINEにURLを貼るだけですぐ始められます。</p>
                     </div>
                   </div>
                   <div className="flex sm:flex-col items-start gap-3 bg-slate-50 p-4 rounded-2xl">
@@ -1346,8 +1782,8 @@ export default function App() {
                       2
                     </span>
                     <div>
-                      <p className="font-bold text-sm text-slate-900">空き時間をまとめて登録</p>
-                      <p className="text-xs text-slate-600 mt-1">スマホはボタン＆時刻選択、PCはドラッグでもサクッと入力！</p>
+                      <p className="font-bold text-sm text-slate-900">スライド＆Google連携で一括入力</p>
+                      <p className="text-xs text-slate-600 mt-1">指スライド・★希望マーク・Googleカレンダー自動反映に対応！</p>
                     </div>
                   </div>
                   <div className="flex sm:flex-col items-start gap-3 bg-slate-50 p-4 rounded-2xl">
@@ -1355,8 +1791,8 @@ export default function App() {
                       3
                     </span>
                     <div>
-                      <p className="font-bold text-sm text-slate-900">集まれる日時ランキングを自動抽出</p>
-                      <p className="text-xs text-slate-600 mt-1">参加できる人・できない人・未回答の人がひと目でわかります。</p>
+                      <p className="font-bold text-sm text-slate-900">最適日時を自動で可視化</p>
+                      <p className="text-xs text-slate-600 mt-1">最多人数の時間帯と★希望数がランキング＆表でひと目で分かります。</p>
                     </div>
                   </div>
                 </div>
@@ -1827,7 +2263,7 @@ export default function App() {
 
               <div className="space-y-2.5">
                 {currentEvent.participants.map((p, idx) => {
-                  const isMine = user && p.ownerUid === user.uid;
+                  const isMine = isParticipantOwnedByDevice(p);
                   return (
                     <div
                       key={p.participantId}
@@ -1901,20 +2337,20 @@ export default function App() {
         )}
 
         {/* ====================================================
-            画面4: 空き時間入力画面（スマホはボタン＆時刻入力、PCはドラッグ追加/消去グリッドも併設）
+            画面4: 空き時間入力画面（スマホ縦スライド・Google連携・一括入力・PCドラッグ両対応）
         ==================================================== */}
         {activeScreen === 'input' && currentEvent && (
           <div className="space-y-5">
             {/* Step 1: ニックネームと暗証キー */}
-            <div className="bg-white rounded-3xl p-4 sm:p-5 border border-slate-200 shadow-sm">
+            <div className="bg-white rounded-3xl p-4 sm:p-5 border border-slate-200 shadow-sm space-y-4">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   <UserPlus className="w-5 h-5 text-emerald-600" />
                   <h2 className="font-extrabold text-base text-slate-900">
                     {editingParticipantId ? '回答内容の修正' : 'あなたの情報を入力'}
                   </h2>
                   <span className="text-[11px] text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-full font-semibold">
-                    自動一時保存オン
+                    同端末なら次回パスワード不要
                   </span>
                 </div>
 
@@ -1936,7 +2372,7 @@ export default function App() {
                   </div>
                   <div>
                     <label className="block text-[11px] font-bold text-slate-600 mb-1 flex items-center gap-1">
-                      <Lock className="w-3 h-3 text-slate-400" /> 編集用4桁
+                      <Lock className="w-3 h-3 text-slate-400" /> 別端末用4桁
                     </label>
                     <input
                       type="text"
@@ -1952,11 +2388,48 @@ export default function App() {
                   </div>
                 </div>
               </div>
+
+              {/* Googleカレンダー自動連携 & 全日程一括入力ツールバー */}
+              <div className="pt-3 border-t border-slate-100 flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  disabled={isSyncingCalendar}
+                  onClick={handleSyncGoogleCalendar}
+                  className="flex-1 sm:flex-none py-2.5 px-3.5 rounded-xl bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-800 font-extrabold text-xs transition flex items-center justify-center gap-1.5"
+                >
+                  {isSyncingCalendar ? (
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Calendar className="w-4 h-4 text-blue-600" />
+                  )}
+                  <span>Googleカレンダー自動反映</span>
+                </button>
+
+                <label className="cursor-pointer py-2.5 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition flex items-center gap-1.5">
+                  <Upload className="w-3.5 h-3.5 text-slate-600" />
+                  <span>.ics読込</span>
+                  <input
+                    type="file"
+                    accept=".ics,text/calendar"
+                    onChange={handleImportIcsFile}
+                    className="hidden"
+                  />
+                </label>
+
+                <button
+                  type="button"
+                  onClick={handleFillAllEmptyAsAvailable}
+                  className="flex-1 sm:flex-none py-2.5 px-3.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-800 font-extrabold text-xs transition flex items-center justify-center gap-1.5"
+                >
+                  <Wand2 className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>空いているところをすべて ●</span>
+                </button>
+              </div>
             </div>
 
-            {/* スマホは1カラム（ドラッグ画面なし）、PC(lg以上)は左右2カラム（右側にドラッグ追加＆消去カレンダーを表示） */}
+            {/* レイアウト: スマホは1カラム（縦スライド＋ボタン入力）、PCは2カラム（右側に複数日ドラッググリッド） */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
-              {/* 左カラム（スマホでは全幅）: 日別のボタン・プリセット・プルダウン入力 */}
+              {/* 左カラム: 日付選択・スマホ最適化スライドタイムライン・従来のレンジ入力 */}
               <div className="lg:col-span-6 space-y-4">
                 {/* 日付選択ボタン */}
                 <div className="bg-white rounded-3xl p-4 sm:p-5 border border-slate-200 shadow-sm space-y-3">
@@ -1975,6 +2448,7 @@ export default function App() {
                       const formatted = formatJapaneseDate(d);
                       const dState = availabilityDraft[d]?.status || 'unanswered';
                       const rangeCount = availabilityDraft[d]?.ranges?.length || 0;
+                      const hasPreferred = availabilityDraft[d]?.ranges?.some(r => r.level === 'preferred');
                       const isSelected = idx === selectedDateIndex;
 
                       return (
@@ -1995,7 +2469,12 @@ export default function App() {
                               : 'border-dashed border-amber-300 bg-amber-50/30 text-slate-700'
                           }`}
                         >
-                          <span className="text-xs font-extrabold">{formatted.short}</span>
+                          <span className="text-xs font-extrabold flex items-center justify-between">
+                            <span>{formatted.short}</span>
+                            {hasPreferred && (
+                              <Star className={`w-3 h-3 fill-current ${isSelected ? 'text-amber-300' : 'text-amber-500'}`} />
+                            )}
+                          </span>
                           <div className="mt-1.5 flex items-center gap-1">
                             {dState === 'available' ? (
                               <span
@@ -2003,7 +2482,7 @@ export default function App() {
                                   isSelected ? 'bg-white/25 text-white' : 'bg-emerald-600 text-white'
                                 }`}
                               >
-                                空き {rangeCount}件
+                                ● {rangeCount}件
                               </span>
                             ) : dState === 'unavailable' ? (
                               <span
@@ -2011,7 +2490,7 @@ export default function App() {
                                   isSelected ? 'bg-white/25 text-white' : 'bg-slate-500 text-white'
                                 }`}
                               >
-                                予定あり
+                                × NG
                               </span>
                             ) : (
                               <span
@@ -2029,7 +2508,7 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* 選択中の日の時間帯まとめ入力カード */}
+                {/* 選択中の日の時間帯まとめ入力＆縦スライドタイムラインカード */}
                 {currentEditingDate && (
                   <div className="bg-white rounded-3xl p-5 border-2 border-emerald-500/80 shadow-md space-y-4">
                     <div className="flex items-center justify-between border-b border-slate-100 pb-3">
@@ -2041,14 +2520,15 @@ export default function App() {
                       </div>
                     </div>
 
-                    {/* ワンタップ「終日空いている」「この日は空いていない」 */}
-                    <div className="grid grid-cols-2 gap-2.5">
+                    {/* この日すべて一括入力ボタン（● / ★ / ×） */}
+                    <div className="grid grid-cols-3 gap-2">
                       <button
                         type="button"
-                        onClick={handleSetAllDayAvailable}
-                        className={`py-3.5 px-3 rounded-2xl font-extrabold text-xs sm:text-sm border transition flex items-center justify-center gap-1.5 ${
+                        onClick={() => handleSetAllDayAvailable('available')}
+                        className={`py-3 px-2 rounded-2xl font-extrabold text-xs border transition flex flex-col sm:flex-row items-center justify-center gap-1 ${
                           currentDayData.status === 'available' &&
                           currentDayData.ranges.length === 1 &&
+                          (currentDayData.ranges[0].level || 'available') === 'available' &&
                           currentDayData.ranges[0].start === currentEvent.dayStartTime &&
                           currentDayData.ranges[0].end === currentEvent.dayEndTime
                             ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
@@ -2056,32 +2536,217 @@ export default function App() {
                         }`}
                       >
                         <Sun className="w-4 h-4 shrink-0" />
-                        <span>終日空いている ({currentEvent.dayStartTime}〜{currentEvent.dayEndTime})</span>
+                        <span>この日すべて ●</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleSetAllDayAvailable('preferred')}
+                        className={`py-3 px-2 rounded-2xl font-extrabold text-xs border transition flex flex-col sm:flex-row items-center justify-center gap-1 ${
+                          currentDayData.status === 'available' &&
+                          currentDayData.ranges.length === 1 &&
+                          currentDayData.ranges[0].level === 'preferred' &&
+                          currentDayData.ranges[0].start === currentEvent.dayStartTime &&
+                          currentDayData.ranges[0].end === currentEvent.dayEndTime
+                            ? 'bg-amber-500 text-white border-amber-500 shadow-sm'
+                            : 'bg-amber-50 text-amber-900 border-amber-200 hover:bg-amber-100'
+                        }`}
+                      >
+                        <Star className="w-4 h-4 shrink-0 fill-current" />
+                        <span>この日すべて ★</span>
                       </button>
 
                       <button
                         type="button"
                         onClick={handleSetDayUnavailable}
-                        className={`py-3.5 px-3 rounded-2xl font-extrabold text-xs sm:text-sm border transition flex items-center justify-center gap-1.5 ${
+                        className={`py-3 px-2 rounded-2xl font-extrabold text-xs border transition flex flex-col sm:flex-row items-center justify-center gap-1 ${
                           currentDayData.status === 'unavailable'
                             ? 'bg-slate-800 text-white border-slate-800 shadow-sm'
                             : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200'
                         }`}
                       >
                         <XCircle className="w-4 h-4 shrink-0" />
-                        <span>この日は空いていない</span>
+                        <span>この日は ×</span>
                       </button>
+                    </div>
+
+                    {/* スマホ最適化：1時間ごとの縦並びタイムライン（指を押したままスライドで連続入力） */}
+                    <div className="bg-slate-50 rounded-2xl p-3.5 border border-slate-200 space-y-2.5">
+                      <div className="flex items-center justify-between flex-wrap gap-2">
+                        <p className="text-xs font-extrabold text-slate-800 flex items-center gap-1.5">
+                          <Clock className="w-4 h-4 text-emerald-600" />
+                          <span>タイムラインをなぞって入力（1時間ごと）</span>
+                        </p>
+                      </div>
+
+                      {/* 入力ブラシ選択（● 参加可 / ★ 希望 / × 消去） */}
+                      <div className="grid grid-cols-3 gap-1.5 bg-white p-1 rounded-xl border border-slate-200">
+                        <button
+                          type="button"
+                          onClick={() => setActiveBrush('available')}
+                          className={`py-2 px-2 rounded-lg text-xs font-extrabold transition flex items-center justify-center gap-1 ${
+                            activeBrush === 'available'
+                              ? 'bg-emerald-600 text-white shadow-sm'
+                              : 'text-slate-600 hover:bg-slate-100'
+                          }`}
+                        >
+                          <span>● 参加できる</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setActiveBrush('preferred')}
+                          className={`py-2 px-2 rounded-lg text-xs font-extrabold transition flex items-center justify-center gap-1 ${
+                            activeBrush === 'preferred'
+                              ? 'bg-amber-500 text-white shadow-sm'
+                              : 'text-slate-600 hover:bg-slate-100'
+                          }`}
+                        >
+                          <Star className="w-3.5 h-3.5 fill-current" />
+                          <span>★ 希望</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setActiveBrush('remove')}
+                          className={`py-2 px-2 rounded-lg text-xs font-extrabold transition flex items-center justify-center gap-1 ${
+                            activeBrush === 'remove'
+                              ? 'bg-rose-600 text-white shadow-sm'
+                              : 'text-slate-600 hover:bg-slate-100'
+                          }`}
+                        >
+                          <span>× 消す</span>
+                        </button>
+                      </div>
+
+                      <p className="text-[11px] text-slate-500">
+                        右側の枠を指で押したまま上下にスライド（滑らせる）すると、連続して入力できます（左の時刻部分は画面スクロール用）。
+                      </p>
+
+                      {/* 1時間ごとの縦タイムラインリスト */}
+                      <div className="border border-slate-200 rounded-xl overflow-hidden bg-white divide-y divide-slate-100 select-none">
+                        {hourlyTimeSlots.map(hourStartMins => {
+                          const hourEndMins = Math.min(hourStartMins + 60, timeToMinutes(currentEvent.dayEndTime));
+                          const labelStart = minutesToTime(hourStartMins);
+                          const labelEnd = minutesToTime(hourEndMins);
+
+                          const matchingRanges =
+                            currentDayData.status === 'available'
+                              ? currentDayData.ranges.filter(
+                                  r => timeToMinutes(r.start) < hourEndMins && timeToMinutes(r.end) > hourStartMins
+                                )
+                              : [];
+                          const hasPreferred = matchingRanges.some(r => r.level === 'preferred');
+                          const hasAvailable = matchingRanges.length > 0;
+
+                          const isSlidingHere =
+                            dragState &&
+                            dragState.date === currentEditingDate &&
+                            dragState.stepMins === 60 &&
+                            hourStartMins >= Math.min(dragState.startMins, dragState.currentMins) &&
+                            hourStartMins <= Math.max(dragState.startMins, dragState.currentMins);
+
+                          return (
+                            <div key={`hour-slot-${hourStartMins}`} className="flex items-stretch h-11">
+                              {/* 左側：時刻ラベル（画面スクロール可能領域） */}
+                              <div className="w-24 shrink-0 px-2.5 flex items-center justify-center border-r border-slate-200 bg-slate-50 text-xs font-mono font-bold text-slate-700">
+                                {labelStart}〜{labelEnd}
+                              </div>
+
+                              {/* 右側：指スライド・マウスドラッグ連続入力エリア（touch-none） */}
+                              <div
+                                data-slide-hour-mins={hourStartMins}
+                                onMouseDown={e => {
+                                  e.preventDefault();
+                                  setDragState({
+                                    date: currentEditingDate,
+                                    startMins: hourStartMins,
+                                    currentMins: hourStartMins,
+                                    stepMins: 60,
+                                    mode: activeBrush
+                                  });
+                                }}
+                                onMouseEnter={() => {
+                                  if (dragState && dragState.stepMins === 60 && dragState.date === currentEditingDate) {
+                                    setDragState(prev => (prev ? { ...prev, currentMins: hourStartMins } : null));
+                                  }
+                                }}
+                                onTouchStart={() => {
+                                  setDragState({
+                                    date: currentEditingDate,
+                                    startMins: hourStartMins,
+                                    currentMins: hourStartMins,
+                                    stepMins: 60,
+                                    mode: activeBrush
+                                  });
+                                }}
+                                onTouchMove={e => {
+                                  if (!dragState || dragState.stepMins !== 60) return;
+                                  const touch = e.touches[0];
+                                  if (!touch) return;
+                                  const el = document.elementFromPoint(touch.clientX, touch.clientY);
+                                  const slotAttr = el?.getAttribute('data-slide-hour-mins');
+                                  if (slotAttr !== null && slotAttr !== undefined) {
+                                    const nextM = Number(slotAttr);
+                                    if (!Number.isNaN(nextM) && nextM !== dragState.currentMins) {
+                                      setDragState(prev => (prev ? { ...prev, currentMins: nextM } : null));
+                                    }
+                                  }
+                                }}
+                                className={`flex-1 touch-none cursor-pointer flex items-center justify-between px-3.5 transition-colors ${
+                                  isSlidingHere
+                                    ? dragState.mode === 'remove'
+                                      ? 'bg-rose-400/80 text-white'
+                                      : dragState.mode === 'preferred'
+                                      ? 'bg-amber-400/90 text-white'
+                                      : 'bg-emerald-400/85 text-white'
+                                    : hasPreferred
+                                    ? 'bg-amber-100/90 text-amber-950'
+                                    : hasAvailable
+                                    ? 'bg-emerald-100/90 text-emerald-950'
+                                    : currentDayData.status === 'unavailable'
+                                    ? 'bg-slate-100 text-slate-400'
+                                    : 'bg-white hover:bg-emerald-50/50 text-slate-400'
+                                }`}
+                              >
+                                <span className="text-xs font-extrabold flex items-center gap-1.5 pointer-events-none">
+                                  {isSlidingHere ? (
+                                    dragState.mode === 'remove' ? (
+                                      '× 消去中...'
+                                    ) : dragState.mode === 'preferred' ? (
+                                      '★ 希望に設定中...'
+                                    ) : (
+                                      '● 空きに設定中...'
+                                    )
+                                  ) : hasPreferred ? (
+                                    <>
+                                      <Star className="w-3.5 h-3.5 fill-amber-500 text-amber-500" />
+                                      <span>★ できればここ希望</span>
+                                    </>
+                                  ) : hasAvailable ? (
+                                    <>
+                                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-600 inline-block" />
+                                      <span>● 参加できる</span>
+                                    </>
+                                  ) : (
+                                    <span>×（空きなし）</span>
+                                  )}
+                                </span>
+                                <span className="text-[10px] opacity-60 pointer-events-none">なぞる</span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
                     </div>
 
                     {/* よく使う時間帯プリセット */}
                     <div className="space-y-1.5">
                       <p className="text-xs font-bold text-slate-600">
-                        よく使う時間帯をワンタップで追加（複数組み合わせOK）：
+                        よく使う時間帯をワンタップで追加（現在のブラシ：{activeBrush === 'preferred' ? '★希望' : '●空き'}）：
                       </p>
                       <div className="grid grid-cols-2 gap-2">
                         <button
                           type="button"
-                          onClick={() => handleAddTimeRange('09:00', '13:00')}
+                          onClick={() => handleAddTimeRange('09:00', '13:00', activeBrush === 'preferred' ? 'preferred' : 'available')}
                           className="py-2.5 px-3 rounded-xl bg-teal-50 hover:bg-teal-100 border border-teal-200 text-teal-900 font-bold text-xs flex items-center justify-between"
                         >
                           <span className="flex items-center gap-1">
@@ -2092,7 +2757,7 @@ export default function App() {
 
                         <button
                           type="button"
-                          onClick={() => handleAddTimeRange('13:00', '18:00')}
+                          onClick={() => handleAddTimeRange('13:00', '18:00', activeBrush === 'preferred' ? 'preferred' : 'available')}
                           className="py-2.5 px-3 rounded-xl bg-teal-50 hover:bg-teal-100 border border-teal-200 text-teal-900 font-bold text-xs flex items-center justify-between"
                         >
                           <span className="flex items-center gap-1">
@@ -2103,7 +2768,7 @@ export default function App() {
 
                         <button
                           type="button"
-                          onClick={() => handleAddTimeRange('18:00', '23:00')}
+                          onClick={() => handleAddTimeRange('18:00', '23:00', activeBrush === 'preferred' ? 'preferred' : 'available')}
                           className="py-2.5 px-3 rounded-xl bg-teal-50 hover:bg-teal-100 border border-teal-200 text-teal-900 font-bold text-xs flex items-center justify-between"
                         >
                           <span className="flex items-center gap-1">
@@ -2114,7 +2779,7 @@ export default function App() {
 
                         <button
                           type="button"
-                          onClick={() => handleAddTimeRange('21:00', '23:00')}
+                          onClick={() => handleAddTimeRange('21:00', '23:00', activeBrush === 'preferred' ? 'preferred' : 'available')}
                           className="py-2.5 px-3 rounded-xl bg-teal-50 hover:bg-teal-100 border border-teal-200 text-teal-900 font-bold text-xs flex items-center justify-between"
                         >
                           <span className="flex items-center gap-1">
@@ -2125,12 +2790,34 @@ export default function App() {
                       </div>
                     </div>
 
-                    {/* 自由な開始時刻〜終了時刻セレクター */}
+                    {/* 自由な開始時刻〜終了時刻セレクター（30分単位の細かい指定も維持） */}
                     <div className="bg-slate-50 rounded-2xl p-3.5 border border-slate-200 space-y-3">
-                      <p className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
-                        <Clock className="w-4 h-4 text-emerald-600" />
-                        <span>時間を自由に指定して追加（24時間表記）</span>
-                      </p>
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                          <Clock className="w-4 h-4 text-emerald-600" />
+                          <span>30分単位で細かく指定して追加</span>
+                        </p>
+                        <div className="flex gap-1">
+                          <button
+                            type="button"
+                            onClick={() => setPickerLevel('available')}
+                            className={`px-2 py-1 rounded-lg text-[11px] font-bold ${
+                              pickerLevel === 'available' ? 'bg-emerald-600 text-white' : 'bg-white text-slate-600 border border-slate-200'
+                            }`}
+                          >
+                            ● 空き
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setPickerLevel('preferred')}
+                            className={`px-2 py-1 rounded-lg text-[11px] font-bold ${
+                              pickerLevel === 'preferred' ? 'bg-amber-500 text-white' : 'bg-white text-slate-600 border border-slate-200'
+                            }`}
+                          >
+                            ★ 希望
+                          </button>
+                        </div>
+                      </div>
 
                       <div className="flex items-center gap-2">
                         <div className="flex-1">
@@ -2175,19 +2862,25 @@ export default function App() {
 
                       <button
                         type="button"
-                        onClick={() => handleAddTimeRange(pickerStart, pickerEnd)}
-                        className="w-full py-3.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-sm shadow-sm transition flex items-center justify-center gap-1.5"
+                        onClick={() => handleAddTimeRange(pickerStart, pickerEnd, pickerLevel)}
+                        className={`w-full py-3.5 px-4 rounded-xl text-white font-extrabold text-sm shadow-sm transition flex items-center justify-center gap-1.5 ${
+                          pickerLevel === 'preferred'
+                            ? 'bg-amber-500 hover:bg-amber-600'
+                            : 'bg-emerald-600 hover:bg-emerald-700'
+                        }`}
                       >
                         <Plus className="w-5 h-5" />
-                        <span>＋ 空いている時間を追加（{pickerStart}〜{pickerEnd}）</span>
+                        <span>
+                          ＋ {pickerLevel === 'preferred' ? '★希望時間' : '●空き時間'}を追加（{pickerStart}〜{pickerEnd}）
+                        </span>
                       </button>
                     </div>
 
-                    {/* 登録された空き時間カード一覧（修正・削除可能） */}
+                    {/* 登録された空き時間カード一覧（●/★切替・時刻修正・削除可能） */}
                     <div className="space-y-2">
                       <div className="flex items-center justify-between">
                         <h4 className="text-xs font-extrabold text-slate-700">
-                          {formatJapaneseDate(currentEditingDate).short} に登録済みの空き時間
+                          {formatJapaneseDate(currentEditingDate).short} に登録済みの時間帯
                         </h4>
                         {currentDayData.status !== 'unanswered' && (
                           <button
@@ -2210,7 +2903,7 @@ export default function App() {
                             まだこの日の空き時間が登録されていません
                           </p>
                           <p className="text-[11px] text-amber-700 mt-0.5">
-                            上のボタン・時刻指定から空き時間を追加してください
+                            上のタイムラインをなぞるか、ボタンから追加してください
                           </p>
                         </div>
                       )}
@@ -2241,50 +2934,74 @@ export default function App() {
                       )}
 
                       {currentDayData.status === 'available' &&
-                        currentDayData.ranges.map((rng, idx) => (
-                          <div
-                            key={rng.id}
-                            className="p-3.5 rounded-2xl bg-emerald-50/90 border border-emerald-300 flex items-center justify-between gap-2"
-                          >
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <span className="text-xs font-extrabold bg-emerald-600 text-white px-2 py-0.5 rounded-lg">
-                                空き {idx + 1}
-                              </span>
-                              <select
-                                value={rng.start}
-                                onChange={e => handleUpdateTimeRange(rng.id, 'start', e.target.value)}
-                                className="bg-white border border-emerald-300 rounded-lg px-2 py-1.5 font-mono font-extrabold text-sm text-slate-900"
-                              >
-                                {timeSelectOptions.slice(0, -1).map(t => (
-                                  <option key={t} value={t}>
-                                    {t}
-                                  </option>
-                                ))}
-                              </select>
-                              <span className="font-bold text-emerald-800">〜</span>
-                              <select
-                                value={rng.end}
-                                onChange={e => handleUpdateTimeRange(rng.id, 'end', e.target.value)}
-                                className="bg-white border border-emerald-300 rounded-lg px-2 py-1.5 font-mono font-extrabold text-sm text-slate-900"
-                              >
-                                {timeSelectOptions.slice(1).map(t => (
-                                  <option key={t} value={t}>
-                                    {t}
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
-
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveTimeRange(rng.id)}
-                              className="p-2 rounded-xl bg-white text-rose-600 hover:bg-rose-50 border border-rose-200 transition"
-                              title="この時間帯を削除"
+                        currentDayData.ranges.map((rng) => {
+                          const isPref = rng.level === 'preferred';
+                          return (
+                            <div
+                              key={rng.id}
+                              className={`p-3.5 rounded-2xl border flex items-center justify-between gap-2 ${
+                                isPref
+                                  ? 'bg-amber-50/90 border-amber-300'
+                                  : 'bg-emerald-50/90 border-emerald-300'
+                              }`}
                             >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </div>
-                        ))}
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleUpdateTimeRange(rng.id, 'level', isPref ? 'available' : 'preferred')
+                                  }
+                                  className={`text-xs font-extrabold px-2.5 py-1 rounded-lg transition flex items-center gap-1 ${
+                                    isPref
+                                      ? 'bg-amber-500 text-white'
+                                      : 'bg-emerald-600 text-white'
+                                  }`}
+                                  title="タップで ●空き / ★希望 を切り替え"
+                                >
+                                  {isPref ? (
+                                    <>
+                                      <Star className="w-3 h-3 fill-current" /> 希望
+                                    </>
+                                  ) : (
+                                    '● 空き'
+                                  )}
+                                </button>
+                                <select
+                                  value={rng.start}
+                                  onChange={e => handleUpdateTimeRange(rng.id, 'start', e.target.value)}
+                                  className="bg-white border border-slate-300 rounded-lg px-2 py-1.5 font-mono font-extrabold text-sm text-slate-900"
+                                >
+                                  {timeSelectOptions.slice(0, -1).map(t => (
+                                    <option key={t} value={t}>
+                                      {t}
+                                    </option>
+                                  ))}
+                                </select>
+                                <span className="font-bold text-slate-700">〜</span>
+                                <select
+                                  value={rng.end}
+                                  onChange={e => handleUpdateTimeRange(rng.id, 'end', e.target.value)}
+                                  className="bg-white border border-slate-300 rounded-lg px-2 py-1.5 font-mono font-extrabold text-sm text-slate-900"
+                                >
+                                  {timeSelectOptions.slice(1).map(t => (
+                                    <option key={t} value={t}>
+                                      {t}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveTimeRange(rng.id)}
+                                className="p-2 rounded-xl bg-white text-rose-600 hover:bg-rose-50 border border-rose-200 transition"
+                                title="この時間帯を削除"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          );
+                        })}
                     </div>
 
                     {/* 前後の日付移動ボタン */}
@@ -2315,18 +3032,49 @@ export default function App() {
                 )}
               </div>
 
-              {/* 右カラム（PC画面専用: スマホでは非表示 `hidden lg:block`）: ドラッグで追加＆消去できるカレンダーグリッド */}
+              {/* 右カラム（PC画面専用）: 複数日を一覧しながらドラッグで ●追加 / ★希望 / ×消去 できるカレンダーグリッド */}
               <div className="hidden lg:block lg:col-span-6 bg-white rounded-3xl p-5 border border-slate-200 shadow-sm space-y-3">
                 <div className="flex items-center justify-between flex-wrap gap-2">
                   <div>
                     <h3 className="font-extrabold text-base text-slate-900 flex items-center gap-1.5">
                       <Calendar className="w-4 h-4 text-emerald-600" />
-                      <span>マウスドラッグで空き時間を追加・消去（PC用）</span>
+                      <span>マウスドラッグで全日程まとめて入力（PC用）</span>
                     </h3>
                     <p className="text-xs text-slate-500 mt-0.5">
-                      空欄をドラッグすると<span className="text-emerald-700 font-bold">「追加」</span>、緑の登録済み部分をドラッグすると<span className="text-rose-600 font-bold">「消去」</span>できます。
+                      ブラシを選んでドラッグ：●追加、★希望、×消去。登録済み（緑・黄）を●ブラシでドラッグすると自動消去できます。
                     </p>
                   </div>
+                </div>
+
+                {/* PC用ブラシ切替 */}
+                <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl">
+                  <button
+                    type="button"
+                    onClick={() => setActiveBrush('available')}
+                    className={`flex-1 py-1.5 rounded-lg text-xs font-extrabold transition ${
+                      activeBrush === 'available' ? 'bg-emerald-600 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    ● 参加できる
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveBrush('preferred')}
+                    className={`flex-1 py-1.5 rounded-lg text-xs font-extrabold transition flex items-center justify-center gap-1 ${
+                      activeBrush === 'preferred' ? 'bg-amber-500 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    <Star className="w-3.5 h-3.5 fill-current" /> ★ 希望
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveBrush('remove')}
+                    className={`flex-1 py-1.5 rounded-lg text-xs font-extrabold transition ${
+                      activeBrush === 'remove' ? 'bg-rose-600 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    × 消去
+                  </button>
                 </div>
 
                 {/* カレンダーグリッド本体 */}
@@ -2406,9 +3154,11 @@ export default function App() {
                                   : undefined;
                               const isRangeStart =
                                 matchingRange && timeToMinutes(matchingRange.start) === slotMins;
+                              const isPrefRange = matchingRange?.level === 'preferred';
 
                               const isDraggingThisCell =
                                 dragState &&
+                                dragState.stepMins === 30 &&
                                 dragState.date === d &&
                                 slotMins >= Math.min(dragState.startMins, dragState.currentMins) &&
                                 slotMins <= Math.max(dragState.startMins, dragState.currentMins);
@@ -2419,15 +3169,26 @@ export default function App() {
                                   onMouseDown={e => {
                                     e.preventDefault();
                                     setSelectedDateIndex(dIdx);
+                                    const nextMode =
+                                      activeBrush === 'remove'
+                                        ? 'remove'
+                                        : activeBrush === 'preferred'
+                                        ? isPrefRange
+                                          ? 'remove'
+                                          : 'preferred'
+                                        : matchingRange
+                                        ? 'remove'
+                                        : 'available';
                                     setDragState({
                                       date: d,
                                       startMins: slotMins,
                                       currentMins: slotMins,
-                                      mode: matchingRange ? 'remove' : 'add'
+                                      stepMins: 30,
+                                      mode: nextMode
                                     });
                                   }}
                                   onMouseEnter={() => {
-                                    if (dragState && dragState.date === d) {
+                                    if (dragState && dragState.stepMins === 30 && dragState.date === d) {
                                       setDragState(prev => (prev ? { ...prev, currentMins: slotMins } : null));
                                     }
                                   }}
@@ -2435,19 +3196,30 @@ export default function App() {
                                     isDraggingThisCell
                                       ? dragState.mode === 'remove'
                                         ? 'bg-rose-400/85'
+                                        : dragState.mode === 'preferred'
+                                        ? 'bg-amber-400/90'
                                         : 'bg-emerald-400/80'
+                                      : isPrefRange
+                                      ? 'bg-amber-400/95 hover:bg-amber-500'
                                       : matchingRange
-                                      ? 'bg-emerald-500/90 hover:bg-rose-500/80'
+                                      ? 'bg-emerald-500/90 hover:bg-emerald-600'
                                       : dayAvail?.status === 'unavailable'
                                       ? 'bg-slate-200/60'
                                       : isHourMark
                                       ? 'bg-white hover:bg-emerald-50'
                                       : 'bg-slate-50/40 hover:bg-emerald-50'
                                   }`}
-                                  title={matchingRange ? 'ドラッグまたはクリックで消去' : 'ドラッグで空き時間を追加'}
+                                  title={
+                                    isPrefRange
+                                      ? '★希望（ドラッグで変更・消去）'
+                                      : matchingRange
+                                      ? '●空き（ドラッグで消去・★変更）'
+                                      : 'ドラッグで空き時間を追加'
+                                  }
                                 >
                                   {isRangeStart && matchingRange && !isDraggingThisCell && (
-                                    <div className="px-1.5 py-0.5 flex items-center justify-between text-[10px] font-mono font-bold text-white leading-none">
+                                    <div className="px-1 py-0.5 flex items-center gap-0.5 text-[10px] font-mono font-bold text-white leading-none">
+                                      {isPrefRange && <Star className="w-2.5 h-2.5 fill-current shrink-0" />}
                                       <span className="truncate">
                                         {matchingRange.start}〜{matchingRange.end}
                                       </span>
@@ -2643,44 +3415,61 @@ export default function App() {
                           </div>
 
                           <div className="space-y-1.5 text-xs">
-                            <div className="flex items-start gap-2">
-                              <span className="font-bold text-emerald-700 shrink-0 w-16">⭕ 参加可能:</span>
-                              <div className="flex flex-wrap gap-1">
-                                {cand.availableParticipants.map(p => (
+                          <div className="flex items-start gap-2">
+                            <span className="font-bold text-emerald-700 shrink-0 w-16">⭕ 参加可能:</span>
+                            <div className="flex flex-wrap gap-1">
+                              {cand.availableParticipants.map(p => {
+                                const isPref = cand.preferredParticipants.some(pp => pp.participantId === p.participantId);
+                                return (
                                   <span
                                     key={p.participantId}
-                                    className="bg-emerald-100 text-emerald-900 font-bold px-2 py-0.5 rounded-md"
+                                    className={`font-bold px-2 py-0.5 rounded-md inline-flex items-center gap-1 ${
+                                      isPref
+                                        ? 'bg-amber-100 text-amber-900 border border-amber-300'
+                                        : 'bg-emerald-100 text-emerald-900'
+                                    }`}
+                                  >
+                                    {isPref && <Star className="w-3 h-3 fill-amber-500 text-amber-500" />}
+                                    <span>{p.nickname}</span>
+                                  </span>
+                                );
+                              })}
+                            </div>
+                          </div>
+
+                          {cand.preferredParticipants.length > 0 && (
+                            <div className="flex items-center gap-2">
+                              <span className="font-bold text-amber-600 shrink-0 w-16">★ 希望者:</span>
+                              <span className="bg-amber-50 text-amber-900 border border-amber-200 font-bold px-2 py-0.5 rounded-md">
+                                {cand.preferredParticipants.length}人が「できればこの時間がよい」と希望
+                              </span>
+                            </div>
+                          )}
+
+                          {cand.unavailableParticipants.length > 0 && (
+                            <div className="flex items-start gap-2">
+                              <span className="font-bold text-rose-600 shrink-0 w-16">✖ 参加不可:</span>
+                              <div className="flex flex-wrap gap-1">
+                                {cand.unavailableParticipants.map(p => (
+                                  <span
+                                    key={p.participantId}
+                                    className="bg-rose-50 text-rose-800 border border-rose-200 font-semibold px-2 py-0.5 rounded-md"
                                   >
                                     {p.nickname}
                                   </span>
                                 ))}
                               </div>
                             </div>
+                          )}
 
-                            {cand.unavailableParticipants.length > 0 && (
-                              <div className="flex items-start gap-2">
-                                <span className="font-bold text-rose-600 shrink-0 w-16">✖ 参加不可:</span>
-                                <div className="flex flex-wrap gap-1">
-                                  {cand.unavailableParticipants.map(p => (
-                                    <span
-                                      key={p.participantId}
-                                      className="bg-rose-50 text-rose-800 border border-rose-200 font-semibold px-2 py-0.5 rounded-md"
-                                    >
-                                      {p.nickname}
-                                    </span>
-                                  ))}
-                                </div>
-                              </div>
-                            )}
-
-                            {cand.unansweredCount > 0 && (
-                              <div className="flex items-center gap-2">
-                                <span className="font-bold text-amber-700 shrink-0 w-16">⏳ 未回答:</span>
-                                <span className="bg-amber-50 border border-dashed border-amber-300 text-amber-900 font-semibold px-2 py-0.5 rounded-md">
-                                  {cand.unansweredCount}人（未回答のため参加可否未定）
-                                </span>
-                              </div>
-                            )}
+                          {cand.unansweredCount > 0 && (
+                            <div className="flex items-center gap-2">
+                              <span className="font-bold text-amber-700 shrink-0 w-16">⏳ 未回答:</span>
+                              <span className="bg-amber-50 border border-dashed border-amber-300 text-amber-900 font-semibold px-2 py-0.5 rounded-md">
+                                {cand.unansweredCount}人（未回答のため参加可否未定）
+                              </span>
+                            </div>
+                          )}
                           </div>
                         </div>
                       );
@@ -2689,74 +3478,143 @@ export default function App() {
                 )}
               </div>
 
-              {/* 右カラム: 日付ごとの時間帯重なりヒートマップ */}
-              <div className="lg:col-span-5 bg-white rounded-3xl p-5 border border-slate-200 shadow-sm space-y-3.5">
-                <h2 className="font-extrabold text-base text-slate-900">
-                  日付ごとの空き時間の重なり
-                </h2>
-
-                <div className="grid grid-cols-3 sm:grid-cols-5 gap-1.5">
-                  {currentEvent.candidateDates.map(d => {
-                    const active = (selectedTimelineDate || currentEvent.candidateDates[0]) === d;
-                    return (
-                      <button
-                        key={d}
-                        onClick={() => setSelectedTimelineDate(d)}
-                        className={`py-2 px-2 rounded-xl font-bold text-xs transition ${
-                          active
-                            ? 'bg-slate-900 text-white shadow-sm'
-                            : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                        }`}
-                      >
-                        {formatJapaneseDate(d).short}
-                      </button>
-                    );
-                  })}
+              {/* 右カラム: 全日程の最適日時ヒートマップ表＆日別詳細バー */}
+              <div className="lg:col-span-5 bg-white rounded-3xl p-5 border border-slate-200 shadow-sm space-y-4">
+                <div>
+                  <h2 className="font-extrabold text-base text-slate-900">
+                    全日程の最適日時マップ（ひと目で比較）
+                  </h2>
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    最多参加可能人数（{aggregated.maxSlotCount}人）の時間帯を自動で強調表示します
+                  </p>
                 </div>
 
-                {selectedTimelineDate && aggregated.dailyTimeline[selectedTimelineDate] && (
-                  <div className="space-y-1.5 pt-1">
-                    {aggregated.dailyTimeline[selectedTimelineDate]
-                      .filter((_, idx) => idx % 2 === 0)
-                      .map(slot => {
-                        const count = slot.available.length;
-                        const maxExpected = currentEvent.expectedCount;
-                        const pct = Math.min(100, Math.round((count / maxExpected) * 100));
+                {/* 全日程×1時間ごとの人数マトリクス */}
+                <div className="overflow-x-auto border border-slate-200 rounded-2xl">
+                  <table className="w-full text-center border-collapse text-[11px]">
+                    <thead>
+                      <tr className="bg-slate-50 border-b border-slate-200">
+                        <th className="p-2 font-bold text-slate-500 border-r border-slate-200 w-14">時刻</th>
+                        {currentEvent.candidateDates.map(d => (
+                          <th key={`hm-h-${d}`} className="p-1.5 font-extrabold text-slate-800 border-r border-slate-100 last:border-r-0">
+                            {formatJapaneseDate(d).short}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {hourlyTimeSlots.map(hourM => {
+                        const label = minutesToTime(hourM);
                         return (
-                          <div
-                            key={slot.time}
-                            className="flex items-center gap-2.5 text-xs py-1 px-2 rounded-xl hover:bg-slate-50"
-                          >
-                            <span className="font-mono font-bold text-slate-600 w-12 shrink-0">
-                              {slot.time}
-                            </span>
-                            <div className="flex-1 bg-slate-100 h-6 rounded-lg overflow-hidden relative flex items-center">
-                              <div
-                                className={`h-full transition-all ${
-                                  count >= maxExpected
-                                    ? 'bg-emerald-600'
-                                    : count >= Math.ceil(maxExpected * 0.7)
-                                    ? 'bg-emerald-500'
-                                    : count >= Math.ceil(maxExpected * 0.4)
-                                    ? 'bg-teal-400'
-                                    : count > 0
-                                    ? 'bg-cyan-300'
-                                    : 'bg-transparent'
-                                }`}
-                                style={{ width: `${pct}%` }}
-                              />
-                              <span className="absolute left-2.5 text-[11px] font-bold text-slate-800 drop-shadow-sm truncate right-2">
-                                {count > 0 ? slot.available.map(p => p.nickname).join(', ') : '空きなし'}
-                              </span>
-                            </div>
-                            <span className="w-12 text-right font-extrabold text-slate-800 shrink-0">
-                              {count}/{maxExpected}人
-                            </span>
-                          </div>
+                          <tr key={`hm-r-${hourM}`}>
+                            <td className="p-1.5 font-mono font-bold text-slate-600 bg-slate-50/70 border-r border-slate-200">
+                              {label}
+                            </td>
+                            {currentEvent.candidateDates.map(d => {
+                              const slots = aggregated.dailyTimeline[d] || [];
+                              const slot = slots.find(s => s.time === label);
+                              const count = slot ? slot.available.length : 0;
+                              const prefCount = slot ? slot.preferred.length : 0;
+                              const isBest = aggregated.maxSlotCount > 0 && count === aggregated.maxSlotCount;
+
+                              return (
+                                <td
+                                  key={`hm-c-${d}-${hourM}`}
+                                  onClick={() => setSelectedTimelineDate(d)}
+                                  className={`p-1.5 border-r border-slate-100 last:border-r-0 cursor-pointer transition font-extrabold ${
+                                    isBest
+                                      ? 'bg-emerald-600 text-white ring-2 ring-inset ring-amber-300'
+                                      : count >= Math.ceil(currentEvent.expectedCount * 0.6)
+                                      ? 'bg-emerald-200 text-emerald-950'
+                                      : count > 0
+                                      ? 'bg-emerald-50 text-emerald-800'
+                                      : 'bg-white text-slate-300'
+                                  }`}
+                                >
+                                  <div className="flex items-center justify-center gap-0.5">
+                                    <span>{count > 0 ? `${count}人` : '-'}</span>
+                                    {prefCount > 0 && (
+                                      <Star className={`w-2.5 h-2.5 fill-current ${isBest ? 'text-amber-300' : 'text-amber-500'}`} />
+                                    )}
+                                  </div>
+                                </td>
+                              );
+                            })}
+                          </tr>
                         );
                       })}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* 選択日の詳細バー */}
+                <div className="pt-2 border-t border-slate-100 space-y-2.5">
+                  <h3 className="font-bold text-xs text-slate-700">日付別の参加可能メンバー詳細</h3>
+                  <div className="grid grid-cols-3 sm:grid-cols-5 gap-1.5">
+                    {currentEvent.candidateDates.map(d => {
+                      const active = (selectedTimelineDate || currentEvent.candidateDates[0]) === d;
+                      return (
+                        <button
+                          key={d}
+                          onClick={() => setSelectedTimelineDate(d)}
+                          className={`py-2 px-2 rounded-xl font-bold text-xs transition ${
+                            active
+                              ? 'bg-slate-900 text-white shadow-sm'
+                              : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                          }`}
+                        >
+                          {formatJapaneseDate(d).short}
+                        </button>
+                      );
+                    })}
                   </div>
-                )}
+
+                  {selectedTimelineDate && aggregated.dailyTimeline[selectedTimelineDate] && (
+                    <div className="space-y-1.5 pt-1">
+                      {aggregated.dailyTimeline[selectedTimelineDate]
+                        .filter((_, idx) => idx % 2 === 0)
+                        .map(slot => {
+                          const count = slot.available.length;
+                          const prefCount = slot.preferred.length;
+                          const maxExpected = currentEvent.expectedCount;
+                          const pct = Math.min(100, Math.round((count / maxExpected) * 100));
+                          return (
+                            <div
+                              key={slot.time}
+                              className="flex items-center gap-2.5 text-xs py-1 px-2 rounded-xl hover:bg-slate-50"
+                            >
+                              <span className="font-mono font-bold text-slate-600 w-12 shrink-0">
+                                {slot.time}
+                              </span>
+                              <div className="flex-1 bg-slate-100 h-6 rounded-lg overflow-hidden relative flex items-center">
+                                <div
+                                  className={`h-full transition-all ${
+                                    count >= maxExpected
+                                      ? 'bg-emerald-600'
+                                      : count >= Math.ceil(maxExpected * 0.7)
+                                      ? 'bg-emerald-500'
+                                      : count >= Math.ceil(maxExpected * 0.4)
+                                      ? 'bg-teal-400'
+                                      : count > 0
+                                      ? 'bg-cyan-300'
+                                      : 'bg-transparent'
+                                  }`}
+                                  style={{ width: `${pct}%` }}
+                                />
+                                <span className="absolute left-2.5 text-[11px] font-bold text-slate-800 drop-shadow-sm truncate right-2">
+                                  {count > 0 ? slot.available.map(p => p.nickname).join(', ') : '空きなし'}
+                                </span>
+                              </div>
+                              <span className="w-16 text-right font-extrabold text-slate-800 shrink-0 flex items-center justify-end gap-1">
+                                {prefCount > 0 && <Star className="w-3 h-3 fill-amber-500 text-amber-500" />}
+                                <span>{count}/{maxExpected}人</span>
+                              </span>
+                            </div>
+                          );
+                        })}
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           </div>
@@ -2828,9 +3686,14 @@ export default function App() {
                                   dayAvail.ranges.map(r => (
                                     <span
                                       key={r.id}
-                                      className="font-mono font-bold bg-emerald-100 text-emerald-900 px-2 py-0.5 rounded-md"
+                                      className={`font-mono font-bold px-2 py-0.5 rounded-md inline-flex items-center gap-0.5 ${
+                                        r.level === 'preferred'
+                                          ? 'bg-amber-100 text-amber-900 border border-amber-300'
+                                          : 'bg-emerald-100 text-emerald-900'
+                                      }`}
                                     >
-                                      {r.start}〜{r.end}
+                                      {r.level === 'preferred' && <Star className="w-2.5 h-2.5 fill-amber-500 text-amber-500" />}
+                                      <span>{r.start}〜{r.end}</span>
                                     </span>
                                   ))
                                 )}
@@ -3026,9 +3889,12 @@ export default function App() {
                         dayAvail.ranges.map(r => (
                           <span
                             key={r.id}
-                            className="font-mono font-extrabold bg-emerald-600 text-white px-2 py-0.5 rounded-md"
+                            className={`font-mono font-extrabold text-white px-2 py-0.5 rounded-md inline-flex items-center gap-0.5 ${
+                              r.level === 'preferred' ? 'bg-amber-500' : 'bg-emerald-600'
+                            }`}
                           >
-                            {r.start}〜{r.end}
+                            {r.level === 'preferred' && <Star className="w-2.5 h-2.5 fill-current" />}
+                            <span>{r.start}〜{r.end}</span>
                           </span>
                         ))
                       )}
@@ -3138,6 +4004,46 @@ export default function App() {
                 {isSaving ? '削除中...' : '削除する'}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ====================================================
+          モーダル5: Googleカレンダー連携フォールバック / .ics取り込み案内
+      ==================================================== */}
+      {showCalendarSyncHelpModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-md rounded-3xl p-5 space-y-4 shadow-2xl">
+            <div className="flex items-center gap-2 text-blue-700 font-extrabold text-base">
+              <Calendar className="w-5 h-5" />
+              <span>カレンダー連携について</span>
+            </div>
+            <p className="text-xs text-slate-600 leading-relaxed">
+              Googleカレンダーとの直接連携がブロックされたか、Firebase側のGoogle認証設定が未有効の状態です。
+            </p>
+            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3.5 space-y-2 text-xs text-slate-700">
+              <p className="font-bold text-slate-900">💡 今すぐ使えるおすすめ方法（.ics取り込み）</p>
+              <p className="leading-relaxed">
+                Googleカレンダーの設定からエクスポートした <strong>.icsファイル</strong> を読み込むだけで、ログイン不要ですぐに予定あり(×)と空き(●)を自動反映できます。
+              </p>
+              <label className="mt-2 w-full cursor-pointer py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs transition flex items-center justify-center gap-1.5">
+                <Upload className="w-4 h-4" />
+                <span>.icsファイルを選んで自動反映する</span>
+                <input
+                  type="file"
+                  accept=".ics,text/calendar"
+                  onChange={handleImportIcsFile}
+                  className="hidden"
+                />
+              </label>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowCalendarSyncHelpModal(false)}
+              className="w-full py-3 rounded-xl font-bold text-xs bg-slate-100 text-slate-700 hover:bg-slate-200"
+            >
+              閉じる
+            </button>
           </div>
         </div>
       )}
