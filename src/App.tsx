@@ -639,6 +639,7 @@ export default function App() {
   // --- Event Edit & Delete Modal State ---
   const [isEditingEventTitle, setIsEditingEventTitle] = useState(false);
   const [editEventTitleInput, setEditEventTitleInput] = useState('');
+  const [editExpectedCountInput, setEditExpectedCountInput] = useState(6);
   const [showDeleteEventModal, setShowDeleteEventModal] = useState(false);
 
   // --- Availability Input State ---
@@ -854,7 +855,7 @@ export default function App() {
     }
   };
 
-  /** イベント名（タイトル）の変更を保存 */
+  /** イベント名（タイトル）・参加予定人数の変更を保存 */
   const handleUpdateEventTitle = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user || !currentEvent) return;
@@ -864,19 +865,26 @@ export default function App() {
       return;
     }
 
+    const validCount = Math.max(
+      2,
+      Math.min(50, Math.floor(Number(editExpectedCountInput) || currentEvent.expectedCount))
+    );
+
     setIsSaving(true);
+    setErrorMessage(null);
     try {
       const eventRef = doc(db, 'artifacts', appId, 'public', 'data', 'schedule_events', currentEvent.eventId);
       await setDoc(eventRef, {
         ...currentEvent,
         title: trimmed,
+        expectedCount: validCount,
         updatedAt: Date.now()
       });
       setIsEditingEventTitle(false);
-      showToast('イベント名を変更しました！');
+      showToast(`イベント設定を更新しました！（予定人数: ${validCount}人）`);
     } catch (err) {
-      console.error('Update event title error:', err);
-      setErrorMessage('イベント名の変更に失敗しました。');
+      console.error('Update event settings error:', err);
+      setErrorMessage('イベント設定の変更に失敗しました。');
     } finally {
       setIsSaving(false);
     }
@@ -1977,7 +1985,7 @@ export default function App() {
                         onChange={e => setNewExpectedCount(Number(e.target.value))}
                         className="w-full px-3 py-3.5 rounded-2xl border border-slate-300 bg-white font-bold text-base text-slate-800 outline-none focus:border-emerald-500"
                       >
-                        {[2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 15, 20].map(num => (
+                        {Array.from({ length: 49 }, (_, i) => i + 2).map(num => (
                           <option key={num} value={num}>
                             {num}人
                           </option>
@@ -2147,7 +2155,7 @@ export default function App() {
             <div className="lg:col-span-7 space-y-4">
               <div className="bg-white rounded-3xl p-5 sm:p-6 border border-slate-200 shadow-sm space-y-4">
                 <div>
-                  <div className="flex items-center justify-between gap-2 mb-1.5">
+                  <div className="flex items-center justify-between flex-wrap gap-2 mb-1.5">
                     <span className="inline-flex items-center gap-1 text-xs font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full">
                       <Users className="w-3.5 h-3.5" />
                       幹事: {currentEvent.organizerName} ・ 予定人数 {currentEvent.expectedCount}人
@@ -2158,12 +2166,13 @@ export default function App() {
                         type="button"
                         onClick={() => {
                           setEditEventTitleInput(currentEvent.title);
+                          setEditExpectedCountInput(currentEvent.expectedCount);
                           setIsEditingEventTitle(true);
                         }}
                         className="inline-flex items-center gap-1 text-xs font-bold text-slate-600 hover:text-emerald-700 bg-slate-100 hover:bg-emerald-50 px-2.5 py-1.5 rounded-xl transition"
                       >
                         <Edit3 className="w-3.5 h-3.5" />
-                        <span>イベント名変更</span>
+                        <span>名前・人数変更</span>
                       </button>
 
                       {isEventCreator && (
@@ -2180,31 +2189,75 @@ export default function App() {
                     </div>
                   </div>
 
-                  {/* イベント名表示 or インライン編集フォーム */}
+                  {/* イベント名・予定人数の表示 or インライン編集フォーム */}
                   {isEditingEventTitle ? (
-                    <form onSubmit={handleUpdateEventTitle} className="mt-2 flex items-center gap-2">
-                      <input
-                        type="text"
-                        value={editEventTitleInput}
-                        onChange={e => setEditEventTitleInput(e.target.value)}
-                        placeholder="イベント名を入力"
-                        autoFocus
-                        className="flex-1 px-3.5 py-2 rounded-xl border-2 border-emerald-500 font-extrabold text-base text-slate-900 outline-none"
-                      />
-                      <button
-                        type="submit"
-                        disabled={isSaving}
-                        className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shrink-0"
-                      >
-                        保存
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setIsEditingEventTitle(false)}
-                        className="px-3 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold text-xs shrink-0"
-                      >
-                        キャンセル
-                      </button>
+                    <form
+                      onSubmit={handleUpdateEventTitle}
+                      className="mt-2 p-3.5 rounded-2xl bg-slate-50 border border-emerald-200 space-y-3"
+                    >
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                        <div className="sm:col-span-2">
+                          <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                            イベント名
+                          </label>
+                          <input
+                            type="text"
+                            value={editEventTitleInput}
+                            onChange={e => setEditEventTitleInput(e.target.value)}
+                            placeholder="イベント名を入力"
+                            autoFocus
+                            className="w-full px-3.5 py-2 rounded-xl border-2 border-emerald-500 bg-white font-extrabold text-sm text-slate-900 outline-none"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                            参加予定人数
+                          </label>
+                          <div className="flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => setEditExpectedCountInput(prev => Math.max(2, prev - 1))}
+                              className="w-9 h-10 rounded-xl bg-white border border-slate-300 hover:bg-slate-100 font-extrabold text-slate-700 shrink-0"
+                            >
+                              -
+                            </button>
+                            <select
+                              value={editExpectedCountInput}
+                              onChange={e => setEditExpectedCountInput(Number(e.target.value))}
+                              className="w-full h-10 px-2 rounded-xl border border-slate-300 bg-white font-bold text-sm text-center text-slate-900 outline-none focus:border-emerald-500"
+                            >
+                              {Array.from({ length: 49 }, (_, i) => i + 2).map(num => (
+                                <option key={num} value={num}>
+                                  {num}人
+                                </option>
+                              ))}
+                            </select>
+                            <button
+                              type="button"
+                              onClick={() => setEditExpectedCountInput(prev => Math.min(50, prev + 1))}
+                              className="w-9 h-10 rounded-xl bg-white border border-slate-300 hover:bg-slate-100 font-extrabold text-slate-700 shrink-0"
+                            >
+                              +
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setIsEditingEventTitle(false)}
+                          className="px-3.5 py-2 rounded-xl bg-white border border-slate-200 hover:bg-slate-100 text-slate-600 font-bold text-xs"
+                        >
+                          キャンセル
+                        </button>
+                        <button
+                          type="submit"
+                          disabled={isSaving}
+                          className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-sm"
+                        >
+                          保存する
+                        </button>
+                      </div>
                     </form>
                   ) : (
                     <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900 leading-snug">
@@ -2215,7 +2268,7 @@ export default function App() {
 
                 {/* 回答状況プログレス */}
                 <div className="bg-slate-50 rounded-2xl p-3.5 border border-slate-200/70">
-                  <div className="flex items-center justify-between text-xs font-bold mb-1.5">
+                  <div className="flex items-center justify-between flex-wrap gap-1.5 text-xs font-bold mb-1.5">
                     <span className="text-slate-700">
                       現在の回答状況：{currentEvent.expectedCount}人中{' '}
                       <span className="text-emerald-600 text-sm font-extrabold">
@@ -2223,9 +2276,22 @@ export default function App() {
                       </span>{' '}
                       回答済み
                     </span>
-                    <span className="text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">
-                      未回答 {Math.max(0, currentEvent.expectedCount - currentEvent.participants.length)}人
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">
+                        未回答 {Math.max(0, currentEvent.expectedCount - currentEvent.participants.length)}人
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditEventTitleInput(currentEvent.title);
+                          setEditExpectedCountInput(currentEvent.expectedCount);
+                          setIsEditingEventTitle(true);
+                        }}
+                        className="text-[11px] font-bold text-emerald-700 hover:underline"
+                      >
+                        人数変更
+                      </button>
+                    </div>
                   </div>
                   <div className="w-full h-2.5 bg-slate-200 rounded-full overflow-hidden">
                     <div
