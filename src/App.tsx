@@ -890,6 +890,31 @@ export default function App() {
     }
   };
 
+  /** 予定人数をワンタップ（− / ＋）で即座に変更・保存 */
+  const handleQuickUpdateExpectedCount = async (nextCount: number) => {
+    if (!user || !currentEvent || isSaving) return;
+    const clamped = Math.max(2, Math.min(50, nextCount));
+    if (clamped === currentEvent.expectedCount) return;
+
+    setIsSaving(true);
+    setErrorMessage(null);
+    try {
+      const eventRef = doc(db, 'artifacts', appId, 'public', 'data', 'schedule_events', currentEvent.eventId);
+      await setDoc(eventRef, {
+        ...currentEvent,
+        expectedCount: clamped,
+        updatedAt: Date.now()
+      });
+      setEditExpectedCountInput(clamped);
+      showToast(`参加予定人数を ${clamped}人 に変更しました`);
+    } catch (err) {
+      console.error('Quick update expectedCount error:', err);
+      setErrorMessage('参加予定人数の変更に失敗しました。');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   /** イベント（予定調整自体）の削除 */
   const handleDeleteCurrentEvent = async () => {
     if (!user || !currentEvent) return;
@@ -2267,8 +2292,8 @@ export default function App() {
                 </div>
 
                 {/* 回答状況プログレス */}
-                <div className="bg-slate-50 rounded-2xl p-3.5 border border-slate-200/70">
-                  <div className="flex items-center justify-between flex-wrap gap-1.5 text-xs font-bold mb-1.5">
+                <div className="bg-slate-50 rounded-2xl p-3.5 border border-slate-200/70 space-y-2.5">
+                  <div className="flex items-center justify-between flex-wrap gap-2 text-xs font-bold">
                     <span className="text-slate-700">
                       現在の回答状況：{currentEvent.expectedCount}人中{' '}
                       <span className="text-emerald-600 text-sm font-extrabold">
@@ -2276,22 +2301,9 @@ export default function App() {
                       </span>{' '}
                       回答済み
                     </span>
-                    <div className="flex items-center gap-2">
-                      <span className="text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">
-                        未回答 {Math.max(0, currentEvent.expectedCount - currentEvent.participants.length)}人
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setEditEventTitleInput(currentEvent.title);
-                          setEditExpectedCountInput(currentEvent.expectedCount);
-                          setIsEditingEventTitle(true);
-                        }}
-                        className="text-[11px] font-bold text-emerald-700 hover:underline"
-                      >
-                        人数変更
-                      </button>
-                    </div>
+                    <span className="text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">
+                      未回答 {Math.max(0, currentEvent.expectedCount - currentEvent.participants.length)}人
+                    </span>
                   </div>
                   <div className="w-full h-2.5 bg-slate-200 rounded-full overflow-hidden">
                     <div
@@ -2303,6 +2315,45 @@ export default function App() {
                         )}%`
                       }}
                     />
+                  </div>
+                  {/* ワンタップ参加予定人数変更バー */}
+                  <div className="flex items-center justify-between pt-1 border-t border-slate-200/60">
+                    <span className="text-xs font-bold text-slate-600 flex items-center gap-1">
+                      <Users className="w-3.5 h-3.5 text-emerald-600" />
+                      参加予定人数の変更
+                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        disabled={isSaving || currentEvent.expectedCount <= 2}
+                        onClick={() => handleQuickUpdateExpectedCount(currentEvent.expectedCount - 1)}
+                        className="w-8 h-8 rounded-xl bg-white border border-slate-300 hover:bg-emerald-50 hover:border-emerald-400 font-extrabold text-slate-700 disabled:opacity-40 transition"
+                        aria-label="予定人数を1人減らす"
+                      >
+                        −
+                      </button>
+                      <select
+                        value={currentEvent.expectedCount}
+                        disabled={isSaving}
+                        onChange={e => handleQuickUpdateExpectedCount(Number(e.target.value))}
+                        className="h-8 px-2 rounded-xl border border-slate-300 bg-white font-extrabold text-xs text-slate-900 outline-none focus:border-emerald-500"
+                      >
+                        {Array.from({ length: 49 }, (_, i) => i + 2).map(num => (
+                          <option key={num} value={num}>
+                            {num}人
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        disabled={isSaving || currentEvent.expectedCount >= 50}
+                        onClick={() => handleQuickUpdateExpectedCount(currentEvent.expectedCount + 1)}
+                        className="w-8 h-8 rounded-xl bg-white border border-slate-300 hover:bg-emerald-50 hover:border-emerald-400 font-extrabold text-slate-700 disabled:opacity-40 transition"
+                        aria-label="予定人数を1人増やす"
+                      >
+                        ＋
+                      </button>
+                    </div>
                   </div>
                 </div>
 
@@ -3403,15 +3454,39 @@ export default function App() {
           <div className="space-y-5">
             {/* ヘッダー・必要時間フィルター */}
             <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div>
-                <h1 className="text-lg sm:text-xl font-extrabold text-slate-900 flex items-center gap-2">
-                  <BarChart3 className="w-5 h-5 text-emerald-600" />
-                  <span>みんなの空き時間 集計結果</span>
-                </h1>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  {currentEvent.expectedCount}人中 {currentEvent.participants.length}人が回答済み（未回答{' '}
-                  {Math.max(0, currentEvent.expectedCount - currentEvent.participants.length)}人）
-                </p>
+              <div className="space-y-2">
+                <div>
+                  <h1 className="text-lg sm:text-xl font-extrabold text-slate-900 flex items-center gap-2">
+                    <BarChart3 className="w-5 h-5 text-emerald-600" />
+                    <span>みんなの空き時間 集計結果</span>
+                  </h1>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    {currentEvent.expectedCount}人中 {currentEvent.participants.length}人が回答済み（未回答{' '}
+                    {Math.max(0, currentEvent.expectedCount - currentEvent.participants.length)}人）
+                  </p>
+                </div>
+                <div className="inline-flex items-center gap-1.5 bg-slate-50 border border-slate-200 px-2.5 py-1 rounded-xl">
+                  <span className="text-[11px] font-bold text-slate-600">予定人数:</span>
+                  <button
+                    type="button"
+                    disabled={isSaving || currentEvent.expectedCount <= 2}
+                    onClick={() => handleQuickUpdateExpectedCount(currentEvent.expectedCount - 1)}
+                    className="w-6 h-6 rounded-lg bg-white border border-slate-300 hover:bg-emerald-50 font-extrabold text-xs text-slate-700 disabled:opacity-40"
+                  >
+                    −
+                  </button>
+                  <span className="text-xs font-extrabold text-slate-900 min-w-[2.2rem] text-center">
+                    {currentEvent.expectedCount}人
+                  </span>
+                  <button
+                    type="button"
+                    disabled={isSaving || currentEvent.expectedCount >= 50}
+                    onClick={() => handleQuickUpdateExpectedCount(currentEvent.expectedCount + 1)}
+                    className="w-6 h-6 rounded-lg bg-white border border-slate-300 hover:bg-emerald-50 font-extrabold text-xs text-slate-700 disabled:opacity-40"
+                  >
+                    ＋
+                  </button>
+                </div>
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
@@ -3761,7 +3836,7 @@ export default function App() {
         {activeScreen === 'members' && currentEvent && (
           <div className="space-y-4">
             <div className="bg-white rounded-3xl p-5 sm:p-6 border border-slate-200 shadow-sm space-y-4">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
                   <h1 className="text-lg sm:text-xl font-extrabold text-slate-900">
                     メンバーの回答一覧
@@ -3770,12 +3845,36 @@ export default function App() {
                     登録された空き時間と最終更新日時を確認できます
                   </p>
                 </div>
-                <button
-                  onClick={() => startNewParticipantInput(currentEvent)}
-                  className="text-xs font-bold bg-emerald-600 text-white px-3.5 py-2 rounded-xl"
-                >
-                  ＋ 自分の回答を追加
-                </button>
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="inline-flex items-center gap-1.5 bg-slate-50 border border-slate-200 px-2.5 py-1.5 rounded-xl">
+                    <span className="text-[11px] font-bold text-slate-600">予定人数:</span>
+                    <button
+                      type="button"
+                      disabled={isSaving || currentEvent.expectedCount <= 2}
+                      onClick={() => handleQuickUpdateExpectedCount(currentEvent.expectedCount - 1)}
+                      className="w-6 h-6 rounded-lg bg-white border border-slate-300 hover:bg-emerald-50 font-extrabold text-xs text-slate-700 disabled:opacity-40"
+                    >
+                      −
+                    </button>
+                    <span className="text-xs font-extrabold text-slate-900 min-w-[2.2rem] text-center">
+                      {currentEvent.expectedCount}人
+                    </span>
+                    <button
+                      type="button"
+                      disabled={isSaving || currentEvent.expectedCount >= 50}
+                      onClick={() => handleQuickUpdateExpectedCount(currentEvent.expectedCount + 1)}
+                      className="w-6 h-6 rounded-lg bg-white border border-slate-300 hover:bg-emerald-50 font-extrabold text-xs text-slate-700 disabled:opacity-40"
+                    >
+                      ＋
+                    </button>
+                  </div>
+                  <button
+                    onClick={() => startNewParticipantInput(currentEvent)}
+                    className="text-xs font-bold bg-emerald-600 text-white px-3.5 py-2 rounded-xl"
+                  >
+                    ＋ 自分の回答を追加
+                  </button>
+                </div>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
