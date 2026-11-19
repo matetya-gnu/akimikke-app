@@ -6,6 +6,7 @@ import {
   onAuthStateChanged,
   GoogleAuthProvider,
   signInWithPopup,
+  signOut,
   type User
 } from 'firebase/auth';
 import {
@@ -66,6 +67,10 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 const appId = 'akimikke-schedule-app';
+
+// Googleカレンダー連携専用の一時Authインスタンス（メインの匿名ログイン状態を維持するため）
+const calendarAuthApp = initializeApp(firebaseConfig, 'google-calendar-sync');
+const calendarAuth = getAuth(calendarAuthApp);
 
 // ==========================================
 // 2. 型定義 (データ構造)
@@ -654,6 +659,7 @@ export default function App() {
   // --- Google Calendar Sync State ---
   const [isSyncingCalendar, setIsSyncingCalendar] = useState(false);
   const [showCalendarSyncHelpModal, setShowCalendarSyncHelpModal] = useState(false);
+  const [calendarSyncErrorDetail, setCalendarSyncErrorDetail] = useState<string | null>(null);
 
   // --- Timeline Brush & Slide/Drag State (スマホ1時間縦スライド & PCドラッグ両対応) ---
   const [activeBrush, setActiveBrush] = useState<'available' | 'preferred' | 'remove'>('available');
@@ -1205,21 +1211,26 @@ export default function App() {
   };
 
   /** カレンダー予定（busyIntervals）から全候補日の「×（予定あり）」と「●（空き）」を自動反映する共通処理 */
-  const applyBusyIntervalsToDraft = (busyList: { start: Date; end: Date; isAllDay: boolean }[], sourceLabel: string) => {
+  const applyBusyIntervalsToDraft = (
+    busyList: { start: Date; end: Date; isAllDay: boolean }[],
+    sourceLabel: string
+  ) => {
     if (!currentEvent) return;
-    const dayStartM = timeToMinutes(currentEvent.dayStartTime);
-    const dayEndM = timeToMinutes(currentEvent.dayEndTime);
+    setRangeWarning(null);
+
     const nextAvail: Record<string, DayAvailability> = { ...availabilityDraft };
+    const dayStartMins = timeToMinutes(currentEvent.dayStartTime);
+    const dayEndMins = timeToMinutes(currentEvent.dayEndTime);
 
-    for (const ymd of currentEvent.candidateDates) {
-      const [y, m, d] = ymd.split('-').map(Number);
-      const dayBaseStart = new Date(y, m - 1, d, 0, 0, 0);
-      const dayBaseEnd = new Date(y, m - 1, d, 23, 59, 59);
+    currentEvent.candidateDates.forEach(d => {
+      const [y, m, day] = d.split('-').map(Number);
+      const dayStartDate = new Date(y, m - 1, day, 0, 0, 0);
+      const nextDayMidnight = new Date(y, m - 1, day + 1, 0, 0, 0);
 
-      // まず終日「● 空き」からスタート
+      // まず対象日の全時間帯を空き(●)として初期化し、予定が入っている時間帯を差し引く
       let freeRanges: TimeRange[] = [
         {
-          id: `rng-gcal-${ymd}-${Date.now()}`,
+          id: `rng-cal-${d}-${Date.now()}`,
           start: currentEvent.dayStartTime,
           end: currentEvent.dayEndTime,
           level: 'available'
@@ -1227,52 +1238,57 @@ export default function App() {
       ];
 
       for (const busy of busyList) {
-        if (busy.end <= dayBaseStart || busy.start >= dayBaseEnd) continue;
+        if (busy.end <= dayStartDate || busy.start >= nextDayMidnight) {
+          continue;
+        }
 
         if (busy.isAllDay) {
           freeRanges = [];
           break;
         }
 
-        const clippedStart = busy.start < dayBaseStart ? dayBaseStart : busy.start;
-        const clippedEnd = busy.end > dayBaseEnd ? dayBaseEnd : busy.end;
+        const overlapStart = busy.start < dayStartDate ? dayStartDate : busy.start;
+        const overlapEnd = busy.end > nextDayMidnight ? nextDayMidnight : busy.end;
 
-        // 30分単位に丸めて予定区間を安全に除外（開始は切り捨て、終了は切り上げ）
-        const bStartMins = Math.floor((clippedStart.getHours() * 60 + clippedStart.getMinutes()) / 30) * 30;
-        const bEndMins = Math.ceil((clippedEnd.getHours() * 60 + clippedEnd.getMinutes()) / 30) * 30;
+        const rawStartM = Math.floor((overlapStart.getTime() - dayStartDate.getTime()) / 60000);
+        const rawEndM = Math.ceil((overlapEnd.getTime() - dayStartDate.getTime()) / 60000);
 
-        const remStart = Math.max(dayStartM, bStartMins);
-        const remEnd = Math.min(dayEndM, bEndMins);
+        // 30分単位に丸めて予定あり(×)として差し引く
+        const snappedStart = Math.max(dayStartMins, Math.floor(rawStartM / 30) * 30);
+        const snappedEnd = Math.min(dayEndMins, Math.ceil(rawEndM / 30) * 30);
 
-        if (remEnd > remStart) {
-          freeRanges = subtractTimeRanges(freeRanges, remStart, remEnd);
+        if (snappedEnd > snappedStart) {
+          freeRanges = subtractTimeRanges(freeRanges, snappedStart, snappedEnd);
         }
       }
 
-      nextAvail[ymd] = {
-        date: ymd,
-        status: freeRanges.length > 0 ? 'available' : 'unavailable',
-        ranges: freeRanges
+      const { merged } = mergeTimeRanges(freeRanges);
+      nextAvail[d] = {
+        date: d,
+        status: merged.length > 0 ? 'available' : 'unavailable',
+        ranges: merged
       };
-    }
+    });
 
     setAvailabilityDraft(nextAvail);
     saveDraftToCloud(nextAvail);
-    showToast(`${sourceLabel}から予定(×)と空き時間(●)を自動反映しました！✨`);
+    showToast(`${sourceLabel}から予定あり(×)と空き(●)を自動反映しました！`);
   };
 
-  /** Googleカレンダーと自動連携（OAuthポップアップで直接読み取り） */
+  /** Googleカレンダーと自動連携（OAuthポップアップで直接読み取り・メインの匿名Authは維持） */
   const handleSyncGoogleCalendar = async () => {
     if (!currentEvent) return;
     setIsSyncingCalendar(true);
     setErrorMessage(null);
+    setCalendarSyncErrorDetail(null);
 
     try {
       const provider = new GoogleAuthProvider();
       provider.addScope('https://www.googleapis.com/auth/calendar.readonly');
       provider.setCustomParameters({ prompt: 'select_account' });
 
-      const result = await signInWithPopup(auth, provider);
+      // 専用インスタンスで認証することで、作成者権限や下書きに紐づく匿名UIDを上書きしない
+      const result = await signInWithPopup(calendarAuth, provider);
       const credential = GoogleAuthProvider.credentialFromResult(result);
       const accessToken = credential?.accessToken;
 
@@ -1289,48 +1305,101 @@ export default function App() {
       const timeMin = new Date(fy, fm - 1, fd, 0, 0, 0).toISOString();
       const timeMax = new Date(ly, lm - 1, ld, 23, 59, 59).toISOString();
 
-      const apiUrl =
-        `https://www.googleapis.com/calendar/v3/calendars/primary/events?` +
-        `timeMin=${encodeURIComponent(timeMin)}&timeMax=${encodeURIComponent(timeMax)}&singleEvents=true&orderBy=startTime`;
-
-      const resp = await fetch(apiUrl, {
-        headers: { Authorization: `Bearer ${accessToken}` }
-      });
-
-      if (!resp.ok) {
-        throw new Error(`CALENDAR_API_${resp.status}`);
+      // 表示中のカレンダー一覧を取得（祝日カレンダーは「予定あり×」にしないよう除外）
+      let calendarIds: string[] = ['primary'];
+      try {
+        const listResp = await fetch('https://www.googleapis.com/calendar/v3/users/me/calendarList', {
+          headers: { Authorization: `Bearer ${accessToken}` }
+        });
+        if (listResp.ok) {
+          const listData = await listResp.json();
+          const selectedIds = (Array.isArray(listData.items) ? listData.items : [])
+            .filter(
+              (cal: { id?: string; selected?: boolean }) =>
+                cal.selected &&
+                cal.id &&
+                !cal.id.includes('#holiday@group.v.calendar.google.com')
+            )
+            .map((cal: { id: string }) => cal.id);
+          if (selectedIds.length > 0) {
+            calendarIds = selectedIds;
+          }
+        }
+      } catch {
+        // 一覧取得に失敗した場合は primary のみ取得
       }
 
-      const data = await resp.json();
-      const items = Array.isArray(data.items) ? data.items : [];
       const busyList: { start: Date; end: Date; isAllDay: boolean }[] = [];
 
-      for (const item of items) {
-        if (item.status === 'cancelled' || item.transparency === 'transparent') continue;
-        if (item.start?.date) {
-          const [sy, sm, sd] = item.start.date.split('-').map(Number);
-          const [ey, em, ed] = (item.end?.date || item.start.date).split('-').map(Number);
-          busyList.push({
-            start: new Date(sy, sm - 1, sd, 0, 0, 0),
-            end: new Date(ey, em - 1, ed, 0, 0, 0),
-            isAllDay: true
-          });
-        } else if (item.start?.dateTime && item.end?.dateTime) {
-          busyList.push({
-            start: new Date(item.start.dateTime),
-            end: new Date(item.end.dateTime),
-            isAllDay: false
-          });
-        }
-      }
+      // 対象カレンダーから候補日期間の予定を取得
+      const fetchPromises = calendarIds.map(async (calId) => {
+        const apiUrl =
+          `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calId)}/events?` +
+          `timeMin=${encodeURIComponent(timeMin)}&timeMax=${encodeURIComponent(timeMax)}&singleEvents=true&orderBy=startTime`;
 
-      applyBusyIntervalsToDraft(busyList, 'Googleカレンダー');
+        const resp = await fetch(apiUrl, {
+          headers: { Authorization: `Bearer ${accessToken}` }
+        });
+
+        if (!resp.ok) {
+          if (calId === 'primary') {
+            throw new Error(`CALENDAR_API_${resp.status}`);
+          }
+          return;
+        }
+
+        const data = await resp.json();
+        const items = Array.isArray(data.items) ? data.items : [];
+
+        for (const item of items) {
+          if (item.status === 'cancelled' || item.transparency === 'transparent') continue;
+          if (item.start?.date) {
+            const [sy, sm, sd] = item.start.date.split('-').map(Number);
+            const [ey, em, ed] = (item.end?.date || item.start.date).split('-').map(Number);
+            busyList.push({
+              start: new Date(sy, sm - 1, sd, 0, 0, 0),
+              end: new Date(ey, em - 1, ed, 0, 0, 0),
+              isAllDay: true
+            });
+          } else if (item.start?.dateTime && item.end?.dateTime) {
+            busyList.push({
+              start: new Date(item.start.dateTime),
+              end: new Date(item.end.dateTime),
+              isAllDay: false
+            });
+          }
+        }
+      });
+
+      await Promise.all(fetchPromises);
+      await signOut(calendarAuth).catch(() => {});
+
+      applyBusyIntervalsToDraft(
+        busyList,
+        busyList.length > 0 ? `Googleカレンダー（${busyList.length}件の予定）` : 'Googleカレンダー（期間内の予定0件）'
+      );
     } catch (err: unknown) {
       console.error('Google Calendar sync error:', err);
+      await signOut(calendarAuth).catch(() => {});
       const code = (err as { code?: string })?.code || '';
-      if (code === 'auth/popup-closed-by-user') {
+      const message = (err as { message?: string })?.message || '';
+
+      if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') {
         showToast('Googleカレンダー連携をキャンセルしました');
       } else {
+        if (code === 'auth/operation-not-allowed') {
+          setCalendarSyncErrorDetail('Firebase Console の「Authentication ＞ Sign-in method」で Google ログインが有効になっていません。');
+        } else if (code === 'auth/unauthorized-domain') {
+          setCalendarSyncErrorDetail(
+            `Firebase Console の「Authentication ＞ 設定 ＞ 承認済みドメイン」に現在のドメイン（${window.location.hostname}）が登録されていません。`
+          );
+        } else if (code === 'auth/popup-blocked') {
+          setCalendarSyncErrorDetail('ブラウザでポップアップがブロックされました。Safari / Chrome などの標準ブラウザで開いて再試行してください。');
+        } else if (message.startsWith('CALENDAR_API_403') || message.startsWith('CALENDAR_API_401')) {
+          setCalendarSyncErrorDetail('Google Cloud Console で「Google Calendar API」が有効になっていないか、カレンダー読み取りの許可がオフになっています。');
+        } else {
+          setCalendarSyncErrorDetail(`連携エラー（${code || message || '不明なエラー'}）が発生しました。設定または .ics 取り込みをご利用ください。`);
+        }
         setShowCalendarSyncHelpModal(true);
       }
     } finally {
@@ -4016,13 +4085,20 @@ export default function App() {
           <div className="bg-white w-full max-w-md rounded-3xl p-5 space-y-4 shadow-2xl">
             <div className="flex items-center gap-2 text-blue-700 font-extrabold text-base">
               <Calendar className="w-5 h-5" />
-              <span>カレンダー連携について</span>
+              <span>Googleカレンダー連携について</span>
             </div>
-            <p className="text-xs text-slate-600 leading-relaxed">
-              Googleカレンダーとの直接連携がブロックされたか、Firebase側のGoogle認証設定が未有効の状態です。
-            </p>
+            {calendarSyncErrorDetail ? (
+              <div className="bg-amber-50 border border-amber-200 rounded-2xl p-3 text-xs text-amber-900 leading-relaxed">
+                <p className="font-bold mb-1">⚠️ 検出された原因：</p>
+                <p>{calendarSyncErrorDetail}</p>
+              </div>
+            ) : (
+              <p className="text-xs text-slate-600 leading-relaxed">
+                Googleカレンダーとの直接連携がブロックされたか、Firebase側の設定が未完了の状態です。
+              </p>
+            )}
             <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3.5 space-y-2 text-xs text-slate-700">
-              <p className="font-bold text-slate-900">💡 今すぐ使えるおすすめ方法（.ics取り込み）</p>
+              <p className="font-bold text-slate-900">💡 今すぐ使える代替方法（.ics取り込み）</p>
               <p className="leading-relaxed">
                 Googleカレンダーの設定からエクスポートした <strong>.icsファイル</strong> を読み込むだけで、ログイン不要ですぐに予定あり(×)と空き(●)を自動反映できます。
               </p>
